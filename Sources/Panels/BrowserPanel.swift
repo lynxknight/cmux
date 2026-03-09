@@ -2899,6 +2899,21 @@ extension BrowserPanel {
         }
     }
 
+    /// Test seam for portal-triggered DevTools restores. The initial regression-test
+    /// commit keeps the pre-fix behavior so CI proves the tests fail without the fix.
+    func reconcileDeveloperToolsAfterPortalUpdate(
+        inspectorWasVisibleBeforeUpdate: Bool,
+        didReattach: Bool,
+        didChangeVisibility: Bool,
+        didChangeZPriority: Bool
+    ) {
+        _ = inspectorWasVisibleBeforeUpdate
+        _ = didReattach
+        _ = didChangeVisibility
+        _ = didChangeZPriority
+        restoreDeveloperToolsAfterAttachIfNeeded()
+    }
+
     @discardableResult
     func isDeveloperToolsVisible() -> Bool {
         guard let inspector = webView.cmuxInspectorObject() else { return false }
