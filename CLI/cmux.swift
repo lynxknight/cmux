@@ -8041,35 +8041,21 @@ struct CMUXCLI {
 
         let isDark = UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark"
 
-        let c1: String
-        let c2: String
-        let c3: String
-        let c4: String
-        let c5: String
-        let c6: String
-        let c7: String
+        let c1 = trueColor(0, 212, 255)
+        let c2 = trueColor(24, 181, 250)
+        let c3 = trueColor(48, 150, 245)
+        let c4 = trueColor(72, 119, 241)
+        let c5 = trueColor(96, 88, 239)
+        let c6 = trueColor(110, 73, 238)
+        let c7 = trueColor(124, 58, 237)
+
         let tagline: String
         let subdued: String
 
         if isDark {
-            c1 = trueColor(0, 212, 255)
-            c2 = trueColor(24, 181, 250)
-            c3 = trueColor(48, 150, 245)
-            c4 = trueColor(72, 119, 241)
-            c5 = trueColor(96, 88, 239)
-            c6 = trueColor(110, 73, 238)
-            c7 = trueColor(124, 58, 237)
             tagline = trueColor(130, 130, 140)
             subdued = "\u{001B}[2m"
         } else {
-            // Darker gradient for light backgrounds (all pass WCAG AA 4.5:1 vs white)
-            c1 = trueColor(0, 120, 155)
-            c2 = trueColor(12, 106, 155)
-            c3 = trueColor(28, 90, 155)
-            c4 = trueColor(48, 72, 152)
-            c5 = trueColor(66, 52, 150)
-            c6 = trueColor(78, 38, 148)
-            c7 = trueColor(90, 25, 146)
             tagline = trueColor(90, 90, 98)
             subdued = trueColor(100, 100, 108)
         }
