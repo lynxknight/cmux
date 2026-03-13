@@ -2051,6 +2051,23 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
+    private func normalizedInheritedWorkingDirectory(_ directory: String?) -> String? {
+        guard let trimmed = directory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func inheritedWorkingDirectory(preferredPanelId: UUID?) -> String? {
+        if let preferredPanelId,
+           let directory = normalizedInheritedWorkingDirectory(panelDirectories[preferredPanelId]) {
+            return directory
+        }
+
+        return normalizedInheritedWorkingDirectory(currentDirectory)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -2072,12 +2089,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
         let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-
-        // Inherit working directory: prefer the source panel's reported cwd,
-        // fall back to the workspace's current directory.
-        let splitWorkingDirectory: String? = panelDirectories[panelId]
-            ?? (currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? nil : currentDirectory)
+        let splitWorkingDirectory = inheritedWorkingDirectory(preferredPanelId: panelId)
 #if DEBUG
         dlog("split.cwd panelId=\(panelId.uuidString.prefix(5)) panelDir=\(panelDirectories[panelId] ?? "nil") currentDir=\(currentDirectory) resolved=\(splitWorkingDirectory ?? "nil")")
 #endif
@@ -4962,6 +4974,8 @@ extension Workspace: BonsplitDelegate {
         if !controller.tabs(inPane: newPane).isEmpty {
             let originalTabs = controller.tabs(inPane: originalPane)
             let hasRealSurface = originalTabs.contains { panelIdFromSurfaceId($0.id) != nil }
+            let movedPanelId = controller.selectedTab(inPane: newPane).flatMap { panelIdFromSurfaceId($0.id) }
+            let splitWorkingDirectory = inheritedWorkingDirectory(preferredPanelId: movedPanelId)
 #if DEBUG
             dlog(
                 "split.didSplit.drag original=\(originalPane.id.uuidString.prefix(5)) " +
@@ -4988,6 +5002,7 @@ extension Workspace: BonsplitDelegate {
                         workspaceId: id,
                         context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
                         configTemplate: inheritedConfig,
+                        workingDirectory: splitWorkingDirectory,
                         portOrdinal: portOrdinal
                     )
                     panels[replacementPanel.id] = replacementPanel
@@ -5018,7 +5033,11 @@ extension Workspace: BonsplitDelegate {
                         "fallback=createTerminalAndDropPlaceholders"
                     )
 #endif
-                    _ = newTerminalSurface(inPane: originalPane, focus: false)
+                    _ = newTerminalSurface(
+                        inPane: originalPane,
+                        focus: false,
+                        workingDirectory: splitWorkingDirectory
+                    )
                     for tab in controller.tabs(inPane: originalPane) {
                         if panelIdFromSurfaceId(tab.id) == nil {
                             bonsplitController.closeTab(tab.id)
@@ -5049,11 +5068,13 @@ extension Workspace: BonsplitDelegate {
             preferredPanelId: sourcePanelId,
             inPane: originalPane
         )
+        let splitWorkingDirectory = inheritedWorkingDirectory(preferredPanelId: sourcePanelId)
 
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
+            workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal
         )
         panels[newPanel.id] = newPanel
