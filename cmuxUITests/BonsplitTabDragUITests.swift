@@ -1,5 +1,7 @@
 import XCTest
 import Foundation
+import AppKit
+import CoreGraphics
 
 final class BonsplitTabDragUITests: XCTestCase {
     override func setUp() {
@@ -37,9 +39,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertLessThan(alphaTab.frame.minX, betaTab.frame.minX, "Expected beta tab to start to the right of alpha")
         let windowFrameBeforeDrag = window.frame
 
-        let start = betaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let destination = alphaTab.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-        start.press(forDuration: 0.2, thenDragTo: destination)
+        let start = CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY)
+        let destination = CGPoint(x: alphaTab.frame.minX + 10, y: alphaTab.frame.midY)
+        dragMouse(fromAccessibilityPoint: start, toAccessibilityPoint: destination)
 
         XCTAssertTrue(
             waitForCondition(timeout: 5.0) { betaTab.frame.minX < alphaTab.frame.minX },
@@ -297,5 +299,68 @@ final class BonsplitTabDragUITests: XCTestCase {
         let gapIfOriginIsBottomLeft = abs(window.frame.maxY - element.frame.maxY)
         let gapIfOriginIsTopLeft = abs(element.frame.minY - window.frame.minY)
         return min(gapIfOriginIsBottomLeft, gapIfOriginIsTopLeft)
+    }
+
+    private func dragMouse(
+        fromAccessibilityPoint start: CGPoint,
+        toAccessibilityPoint end: CGPoint,
+        steps: Int = 20,
+        holdDuration: TimeInterval = 0.15,
+        dragDuration: TimeInterval = 0.30
+    ) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        XCTAssertNotNil(source, "Expected CGEventSource for raw mouse drag")
+        guard let source else { return }
+
+        let quartzStart = quartzPoint(fromAccessibilityPoint: start)
+        let quartzEnd = quartzPoint(fromAccessibilityPoint: end)
+
+        postMouseEvent(type: .mouseMoved, at: quartzStart, source: source)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        postMouseEvent(type: .leftMouseDown, at: quartzStart, source: source)
+        RunLoop.current.run(until: Date().addingTimeInterval(holdDuration))
+
+        let clampedSteps = max(2, steps)
+        for step in 1...clampedSteps {
+            let progress = CGFloat(step) / CGFloat(clampedSteps)
+            let point = CGPoint(
+                x: quartzStart.x + ((quartzEnd.x - quartzStart.x) * progress),
+                y: quartzStart.y + ((quartzEnd.y - quartzStart.y) * progress)
+            )
+            postMouseEvent(type: .leftMouseDragged, at: point, source: source)
+            RunLoop.current.run(until: Date().addingTimeInterval(dragDuration / Double(clampedSteps)))
+        }
+
+        postMouseEvent(type: .leftMouseUp, at: quartzEnd, source: source)
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func postMouseEvent(
+        type: CGEventType,
+        at point: CGPoint,
+        source: CGEventSource
+    ) {
+        guard let event = CGEvent(
+            mouseEventSource: source,
+            mouseType: type,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) else {
+            XCTFail("Expected CGEvent for mouse type \(type.rawValue) at \(point)")
+            return
+        }
+
+        event.setIntegerValueField(.mouseEventClickState, value: 1)
+        event.post(tap: .cghidEventTap)
+    }
+
+    private func quartzPoint(fromAccessibilityPoint point: CGPoint) -> CGPoint {
+        let desktopBounds = NSScreen.screens.reduce(CGRect.null) { partialResult, screen in
+            partialResult.union(screen.frame)
+        }
+        XCTAssertFalse(desktopBounds.isNull, "Expected at least one screen when converting raw mouse coordinates")
+        guard !desktopBounds.isNull else { return point }
+        return CGPoint(x: point.x, y: desktopBounds.maxY - point.y)
     }
 }
