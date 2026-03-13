@@ -3430,9 +3430,10 @@ struct ContentView: View {
         queryIsEmpty: Bool,
         historyTimestamp: TimeInterval
     ) {
+        let canReuseCurrentVisibleResults = commandPaletteVisibleResultsScope == scope
+            && commandPaletteVisibleResultsFingerprint == fingerprint
         let candidateCommandIDs: [String]
-        if commandPaletteVisibleResultsScope == scope,
-           commandPaletteVisibleResultsFingerprint == fingerprint {
+        if canReuseCurrentVisibleResults {
             candidateCommandIDs = Self.commandPalettePreviewCandidateCommandIDs(
                 resultIDs: commandPaletteVisibleResults.map(\.id),
                 limit: Self.commandPaletteVisiblePreviewCandidateLimit
@@ -3456,8 +3457,19 @@ struct ContentView: View {
             matches: previewMatches,
             commandsByID: commandPaletteSearchCommandsByID
         )
+        let nextVisibleResultIDs = Self.commandPalettePendingVisibleResultIDs(
+            previewResultIDs: previewResults.map(\.id),
+            currentVisibleResultIDs: commandPaletteVisibleResults.map(\.id),
+            canReuseCurrentVisibleResults: canReuseCurrentVisibleResults
+        )
+        let nextVisibleResults: [CommandPaletteSearchResult]
+        if nextVisibleResultIDs == previewResults.map(\.id) {
+            nextVisibleResults = previewResults
+        } else {
+            nextVisibleResults = commandPaletteVisibleResults
+        }
         setCommandPaletteVisibleResults(
-            previewResults,
+            nextVisibleResults,
             scope: scope,
             fingerprint: fingerprint
         )
@@ -3553,7 +3565,13 @@ struct ContentView: View {
         currentVisibleResultIDs: [String],
         canReuseCurrentVisibleResults: Bool
     ) -> [String] {
-        previewResultIDs
+        guard canReuseCurrentVisibleResults else {
+            return previewResultIDs
+        }
+        if previewResultIDs.isEmpty, !currentVisibleResultIDs.isEmpty {
+            return currentVisibleResultIDs
+        }
+        return previewResultIDs
     }
 
     static func commandPaletteShouldSynchronouslySeedResults(
