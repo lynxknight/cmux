@@ -13068,8 +13068,11 @@ class TerminalController {
         }
 
         let pidValue: pid_t?
-        if let rawPid = normalizedOptionValue(parsed.options["pid"]) {
-            guard let p = Int32(rawPid), p > 0 else {
+        if parsed.options.keys.contains("pid") {
+            let rawPid = parsed.options["pid"] ?? ""
+            guard let normalized = normalizedOptionValue(rawPid),
+                  let p = Int32(normalized),
+                  p > 0 else {
                 return "ERROR: Invalid pid '\(rawPid)' — must be a positive integer"
             }
             pidValue = p
