@@ -1609,6 +1609,15 @@ enum BrowserSurfaceDeveloperToolsVisibilityState: Equatable {
     }
 }
 
+struct BrowserSurfaceDeveloperToolsHostState: Equatable {
+    let hasAttachedInspectorLayout: Bool
+    let detachedWindowCount: Int
+
+    var hasDetachedInspectorWindows: Bool {
+        detachedWindowCount > 0
+    }
+}
+
 struct BrowserSurfaceRuntimeEventHandlers {
     var didFinishNavigation: (() -> Void)?
     var didFailNavigation: ((String) -> Void)?
@@ -1659,11 +1668,13 @@ protocol BrowserSurfaceRuntime: AnyObject {
     func invalidateFaviconCache()
     func fetchFaviconPNGData() async -> Data?
     func developerToolsVisibilityState() -> BrowserSurfaceDeveloperToolsVisibilityState
+    func developerToolsHostState() -> BrowserSurfaceDeveloperToolsHostState
     @discardableResult
     func revealDeveloperTools(attachIfNeeded: Bool) -> Bool
     @discardableResult
     func concealDeveloperTools() -> Bool
     func showDeveloperToolsConsole()
+    func dismissDetachedDeveloperToolsWindows()
     func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL])
 }
 
@@ -1683,6 +1694,70 @@ final class LocalWebKitBrowserSurfaceRuntimeFactory: BrowserSurfaceRuntimeFactor
             processPool: processPool,
             configuration: configuration
         )
+    }
+}
+
+private enum BrowserSurfaceDeveloperToolsHostIntrospection {
+    static func windowContainsInspectorViews(_ root: NSView) -> Bool {
+        if String(describing: type(of: root)).contains("WKInspector") {
+            return true
+        }
+        for subview in root.subviews where windowContainsInspectorViews(subview) {
+            return true
+        }
+        return false
+    }
+
+    static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
+        guard window.title.hasPrefix("Web Inspector") else { return false }
+        guard let contentView = window.contentView else { return false }
+        return windowContainsInspectorViews(contentView)
+    }
+
+    static func detachedInspectorWindows(excluding mainWindow: NSWindow?) -> [NSWindow] {
+        NSApp.windows.filter { candidate in
+            if let mainWindow, candidate === mainWindow {
+                return false
+            }
+            return isDetachedInspectorWindow(candidate)
+        }
+    }
+
+    static func developerToolsHostState(for webView: WKWebView) -> BrowserSurfaceDeveloperToolsHostState {
+        let hasAttachedInspectorLayout: Bool
+        if let container = webView.superview {
+            hasAttachedInspectorLayout = visibleDescendants(in: container)
+                .contains { isVisibleInspectorCandidate($0) && isInspectorView($0) }
+        } else {
+            hasAttachedInspectorLayout = false
+        }
+
+        let detachedWindowCount = detachedInspectorWindows(excluding: webView.window).count
+        return BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: hasAttachedInspectorLayout,
+            detachedWindowCount: detachedWindowCount
+        )
+    }
+
+    private static func visibleDescendants(in root: NSView) -> [NSView] {
+        var descendants: [NSView] = []
+        var stack = Array(root.subviews.reversed())
+        while let view = stack.popLast() {
+            descendants.append(view)
+            stack.append(contentsOf: view.subviews.reversed())
+        }
+        return descendants
+    }
+
+    private static func isInspectorView(_ view: NSView) -> Bool {
+        String(describing: type(of: view)).contains("WKInspector")
+    }
+
+    private static func isVisibleInspectorCandidate(_ view: NSView) -> Bool {
+        !view.isHidden &&
+            view.alphaValue > 0 &&
+            view.frame.width > 1 &&
+            view.frame.height > 1
     }
 }
 
@@ -1923,6 +1998,10 @@ final class LocalWebKitBrowserSurfaceRuntime: BrowserSurfaceRuntime {
         return visible ? .visible : .hidden
     }
 
+    func developerToolsHostState() -> BrowserSurfaceDeveloperToolsHostState {
+        BrowserSurfaceDeveloperToolsHostIntrospection.developerToolsHostState(for: webView)
+    }
+
     @discardableResult
     func revealDeveloperTools(attachIfNeeded: Bool) -> Bool {
         guard let inspector = webView.cmuxInspectorObject() else { return false }
@@ -1978,6 +2057,12 @@ final class LocalWebKitBrowserSurfaceRuntime: BrowserSurfaceRuntime {
                 inspector.cmuxCallVoid(selector: selector)
                 return
             }
+        }
+    }
+
+    func dismissDetachedDeveloperToolsWindows() {
+        for window in BrowserSurfaceDeveloperToolsHostIntrospection.detachedInspectorWindows(excluding: webView.window) {
+            window.close()
         }
     }
 
@@ -3518,38 +3603,6 @@ extension BrowserPanel {
         runtime.stopLoading()
     }
 
-    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if String(describing: type(of: root)).contains("WKInspector") {
-            return true
-        }
-        for subview in root.subviews where windowContainsInspectorViews(subview) {
-            return true
-        }
-        return false
-    }
-
-    private static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
-        guard window.title.hasPrefix("Web Inspector") else { return false }
-        guard let contentView = window.contentView else { return false }
-        return windowContainsInspectorViews(contentView)
-    }
-
-    private func detachedDeveloperToolsWindows() -> [NSWindow] {
-        let mainWindow = webView.window
-        return NSApp.windows.filter { candidate in
-            if let mainWindow, candidate === mainWindow {
-                return false
-            }
-            return Self.isDetachedInspectorWindow(candidate)
-        }
-    }
-
-    private func hasAttachedDeveloperToolsLayout() -> Bool {
-        guard let container = webView.superview else { return false }
-        return Self.visibleDescendants(in: container)
-            .contains { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
-    }
-
     private func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
         guard preferredDeveloperToolsPresentation != next else { return }
         preferredDeveloperToolsPresentation = next
@@ -3559,9 +3612,10 @@ extension BrowserPanel {
     }
 
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
-        if !detachedDeveloperToolsWindows().isEmpty {
+        let hostState = runtime.developerToolsHostState()
+        if hostState.hasDetachedInspectorWindows {
             setPreferredDeveloperToolsPresentation(.detached)
-        } else if hasAttachedDeveloperToolsLayout() {
+        } else if hostState.hasAttachedInspectorLayout {
             setPreferredDeveloperToolsPresentation(.attached)
             developerToolsDetachedOpenGraceDeadline = nil
         }
@@ -3577,7 +3631,7 @@ extension BrowserPanel {
             guard let self,
                   let window = notification.object as? NSWindow else { return }
             let isDetachedInspectorWindow = MainActor.assumeIsolated {
-                Self.isDetachedInspectorWindow(window)
+                BrowserSurfaceDeveloperToolsHostIntrospection.isDetachedInspectorWindow(window)
             }
             guard isDetachedInspectorWindow else { return }
             DispatchQueue.main.async { [weak self] in
@@ -3604,17 +3658,17 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        guard runtime.attachmentState.isInWindow else { return }
+        let hostState = runtime.developerToolsHostState()
+        guard hostState.hasDetachedInspectorWindows else { return }
 #if DEBUG
-            dlog(
-                "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
-                "title=\(window.title) frame=\(NSStringFromRect(window.frame))"
-            )
+        dlog(
+            "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
+            "count=\(hostState.detachedWindowCount)"
+        )
 #endif
-            window.close()
-        }
+        runtime.dismissDetachedDeveloperToolsWindows()
     }
 
     private func scheduleDetachedDeveloperToolsWindowDismissal() {
@@ -3936,7 +3990,7 @@ extension BrowserPanel {
         if preferredDeveloperToolsPresentation == .detached {
             return false
         }
-        return detachedDeveloperToolsWindows().isEmpty
+        return !runtime.developerToolsHostState().hasDetachedInspectorWindows
     }
 
     func recordPreferredAttachedDeveloperToolsWidth(_ width: CGFloat, containerBounds: NSRect) {

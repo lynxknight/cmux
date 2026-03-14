@@ -14525,6 +14525,8 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
 
 @MainActor
 final class LocalWebKitBrowserSurfaceRuntimeTests: XCTestCase {
+    private final class RuntimeWKInspectorProbeView: NSView {}
+
     private final class RuntimeFakeInspector: NSObject {
         enum HideBehavior {
             case hides
@@ -14721,6 +14723,55 @@ final class LocalWebKitBrowserSurfaceRuntimeTests: XCTestCase {
             surface.attachmentState,
             BrowserSurfaceRuntimeAttachmentState(isAttachedToSuperview: true, isInWindow: true)
         )
+    }
+
+    func testDeveloperToolsHostStateReflectsAttachedInspectorLayoutAndDetachedWindows() {
+        _ = NSApplication.shared
+
+        let surface = LocalWebKitBrowserSurfaceRuntime(
+            processPool: WKProcessPool(),
+            configuration: makeConfiguration()
+        )
+        let baselineDetachedWindowCount = surface.developerToolsHostState().detachedWindowCount
+
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 240))
+        surface.webView.frame = NSRect(x: 0, y: 80, width: host.bounds.width, height: host.bounds.height - 80)
+        host.addSubview(surface.webView)
+
+        let inspectorContainer = NSView(frame: NSRect(x: 0, y: 0, width: host.bounds.width, height: 80))
+        let inspectorView = RuntimeWKInspectorProbeView(frame: inspectorContainer.bounds)
+        inspectorView.autoresizingMask = [.width, .height]
+        inspectorContainer.addSubview(inspectorView)
+        host.addSubview(inspectorContainer)
+
+        let attachedState = surface.developerToolsHostState()
+        XCTAssertTrue(attachedState.hasAttachedInspectorLayout)
+        XCTAssertEqual(attachedState.detachedWindowCount, baselineDetachedWindowCount)
+
+        let detachedWindow = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 240, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        detachedWindow.isReleasedWhenClosed = false
+        detachedWindow.title = "Web Inspector Runtime Host State"
+        let detachedRoot = NSView(frame: detachedWindow.contentRect(forFrameRect: detachedWindow.frame))
+        let detachedInspectorView = RuntimeWKInspectorProbeView(frame: detachedRoot.bounds)
+        detachedInspectorView.autoresizingMask = [.width, .height]
+        detachedRoot.addSubview(detachedInspectorView)
+        detachedWindow.contentView = detachedRoot
+        detachedWindow.makeKeyAndOrderFront(nil)
+        defer {
+            detachedWindow.orderOut(nil)
+            detachedWindow.close()
+        }
+        drainMainQueue()
+
+        let detachedState = surface.developerToolsHostState()
+        XCTAssertTrue(detachedState.hasAttachedInspectorLayout)
+        XCTAssertEqual(detachedState.detachedWindowCount, baselineDetachedWindowCount + 1)
+        XCTAssertTrue(detachedState.hasDetachedInspectorWindows)
     }
 
     func testReplaceWebViewCreatesNewInstanceAndPreservesRequestedPageZoom() {
@@ -15094,6 +15145,7 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
         private(set) var revealDeveloperToolsCallCount = 0
         private(set) var concealDeveloperToolsCallCount = 0
         private(set) var showDeveloperToolsConsoleCallCount = 0
+        private(set) var dismissDetachedDeveloperToolsWindowsCallCount = 0
         private(set) var lastRevealDeveloperToolsAttachIfNeeded: Bool?
         var captureAddressBarPageFocusStatus: BrowserAddressBarPageFocusCaptureStatus = .clearedNone
         var restoreAddressBarPageFocusStatuses: [BrowserAddressBarPageFocusRestoreStatus] = [.noState]
@@ -15107,6 +15159,10 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
         var onFindPreviousInPage: (() -> Void)?
         var onClearFindInPage: (() -> Void)?
         var currentDeveloperToolsVisibilityState: BrowserSurfaceDeveloperToolsVisibilityState = .unavailable
+        var currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: false,
+            detachedWindowCount: 0
+        )
 
         init() {
             let configuration = WKWebViewConfiguration()
@@ -15261,6 +15317,10 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
             currentDeveloperToolsVisibilityState
         }
 
+        func developerToolsHostState() -> BrowserSurfaceDeveloperToolsHostState {
+            currentDeveloperToolsHostState
+        }
+
         @discardableResult
         func revealDeveloperTools(attachIfNeeded: Bool) -> Bool {
             revealDeveloperToolsCallCount += 1
@@ -15280,6 +15340,14 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
 
         func showDeveloperToolsConsole() {
             showDeveloperToolsConsoleCallCount += 1
+        }
+
+        func dismissDetachedDeveloperToolsWindows() {
+            dismissDetachedDeveloperToolsWindowsCallCount += 1
+            currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+                hasAttachedInspectorLayout: currentDeveloperToolsHostState.hasAttachedInspectorLayout,
+                detachedWindowCount: 0
+            )
         }
 
         func sessionHistorySnapshot() -> (backHistoryURLs: [URL], forwardHistoryURLs: [URL]) {
@@ -15542,6 +15610,54 @@ final class BrowserPanelRuntimeBoundaryTests: XCTestCase {
         XCTAssertEqual(runtime.revealDeveloperToolsCallCount, 0)
         XCTAssertEqual(runtime.showDeveloperToolsConsoleCallCount, 1)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
+    }
+
+    func testBrowserPanelInlineDeveloperToolsHostingUsesRuntimeHostStateBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: false,
+            detachedWindowCount: 1
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
+
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0
+        )
+        XCTAssertTrue(panel.shouldUseLocalInlineDeveloperToolsHosting())
+    }
+
+    func testBrowserPanelDismissesDetachedDeveloperToolsWindowsThroughRuntimeBoundary() {
+        let runtime = RecordingBrowserSurfaceRuntime()
+        runtime.currentDeveloperToolsVisibilityState = .visible
+        runtime.currentAttachmentState = BrowserSurfaceRuntimeAttachmentState(
+            isAttachedToSuperview: true,
+            isInWindow: true
+        )
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 0
+        )
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            runtimeFactory: RecordingBrowserSurfaceRuntimeFactory(runtime: runtime)
+        )
+
+        panel.syncDeveloperToolsPreferenceFromInspector()
+        XCTAssertTrue(panel.showDeveloperTools())
+        runtime.currentDeveloperToolsHostState = BrowserSurfaceDeveloperToolsHostState(
+            hasAttachedInspectorLayout: true,
+            detachedWindowCount: 1
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertGreaterThan(runtime.dismissDetachedDeveloperToolsWindowsCallCount, 0)
     }
 
     func testBrowserPanelPreferredURLStringForOmnibarUsesRuntimeStateBeforePublishedCurrentURL() {
