@@ -176,9 +176,23 @@ final class BonsplitTabDragUITests: XCTestCase {
         let window = app.windows.element(boundBy: 0)
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
 
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let alphaTab = app.buttons[alphaTitle]
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+
+        let sidebar = app.descendants(matching: .any).matching(identifier: "Sidebar").firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5.0), "Expected sidebar to exist")
+
         let toggleSidebarButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleSidebar").firstMatch
         let notificationsButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.showNotifications").firstMatch
         let newWorkspaceButton = app.descendants(matching: .any).matching(identifier: "titlebarControl.newTab").firstMatch
+
+        let paneLeadingGap = alphaTab.frame.minX - sidebar.frame.maxX
+        XCTAssertLessThan(
+            paneLeadingGap,
+            28,
+            "Expected visible-sidebar hidden-titlebar mode to keep pane tabs tight to the sidebar edge while the traffic lights sit over the sidebar. window=\(window.frame) sidebar=\(sidebar.frame) alphaTab=\(alphaTab.frame) paneLeadingGap=\(paneLeadingGap)"
+        )
 
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).hover()
         XCTAssertTrue(
