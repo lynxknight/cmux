@@ -7357,11 +7357,21 @@ final class GhosttySurfaceScrollView: NSView {
     }
     #endif
 
-    func ensureFocus(for tabId: UUID, surfaceId: UUID, attemptsRemaining: Int = 3) {
+    func ensureFocus(
+        for tabId: UUID,
+        surfaceId: UUID,
+        attemptsRemaining: Int = 3,
+        focusRequestSource: GhosttyTerminalFocusRequestSource = .automaticEnsureFocus
+    ) {
         func retry() {
             guard attemptsRemaining > 0 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
-                self?.ensureFocus(for: tabId, surfaceId: surfaceId, attemptsRemaining: attemptsRemaining - 1)
+                self?.ensureFocus(
+                    for: tabId,
+                    surfaceId: surfaceId,
+                    attemptsRemaining: attemptsRemaining - 1,
+                    focusRequestSource: focusRequestSource
+                )
             }
         }
 
@@ -7430,8 +7440,21 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
+        let storedTopVisibleRow = surfaceView.terminalSurface?.storedScrollViewportAnchorTopVisibleRow()
         if let fr = window.firstResponder as? NSView,
            fr === surfaceView || fr.isDescendant(of: surfaceView) {
+            guard ghosttyShouldAutomaticallyReassertTerminalFocus(
+                storedTopVisibleRow: storedTopVisibleRow,
+                focusRequestSource: focusRequestSource
+            ) else {
+#if DEBUG
+                dlog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=reviewing_scrollback stage=alreadyFirstResponder"
+                )
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "ensureFocus.alreadyFirstResponder")
             return
         }
@@ -7460,6 +7483,18 @@ final class GhosttySurfaceScrollView: NSView {
         if !isSurfaceViewFirstResponder() {
             retry()
         } else {
+            guard ghosttyShouldAutomaticallyReassertTerminalFocus(
+                storedTopVisibleRow: storedTopVisibleRow,
+                focusRequestSource: focusRequestSource
+            ) else {
+#if DEBUG
+                dlog(
+                    "focus.ensure.skip surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+                    "reason=reviewing_scrollback stage=afterMakeFirstResponder"
+                )
+#endif
+                return
+            }
             reassertTerminalSurfaceFocus(reason: "ensureFocus.afterMakeFirstResponder")
         }
     }
