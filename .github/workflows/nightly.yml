@@ -100,6 +100,7 @@ jobs:
     needs: decide
     if: needs.decide.outputs.should_build == 'true'
     runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 20
     steps:
       - name: Checkout build ref
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

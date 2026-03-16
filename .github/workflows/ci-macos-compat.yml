@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [warp-macos-14-arm64-6x, warp-macos-15-arm64-6x]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

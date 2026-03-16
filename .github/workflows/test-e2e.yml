@@ -31,6 +31,7 @@ on:
 jobs:
   e2e:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
+    timeout-minutes: 20
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
