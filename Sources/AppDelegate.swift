@@ -1948,6 +1948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
+    private var prefixKeyManager = PrefixKeyManager()
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -2158,6 +2159,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+
+        // Set up PREFIX key manager delegate
+        prefixKeyManager.delegate = self
 
         DistributedNotificationCenter.default().addObserver(
             self,
@@ -7910,6 +7914,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        // Handle tmux-style PREFIX key (Ctrl+A) before other shortcuts
+        if prefixKeyManager.handleKeyEvent(event) {
+            return true
+        }
+
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
@@ -11559,4 +11568,63 @@ private extension NSWindow {
         return hitWebView === webView
     }
 
+}
+
+// MARK: - PrefixKeyManagerDelegate
+
+extension AppDelegate: PrefixKeyManagerDelegate {
+    func prefixKeyManager(_ manager: PrefixKeyManager, executeAction action: PrefixKeyManager.PrefixAction) {
+        switch action {
+        case .splitVertical:
+            // PREFIX+\ → side-by-side split (like tmux split-window -h)
+            _ = performSplitShortcut(direction: .right)
+#if DEBUG
+            dlog("prefix.action name=splitVertical")
+#endif
+
+        case .splitHorizontal:
+            // PREFIX+- → stacked split (like tmux split-window -v)
+            _ = performSplitShortcut(direction: .down)
+#if DEBUG
+            dlog("prefix.action name=splitHorizontal")
+#endif
+
+        case .toggleZoom:
+            // PREFIX+z → toggle pane zoom (like tmux resize-pane -Z)
+            _ = tabManager?.toggleFocusedSplitZoom()
+#if DEBUG
+            dlog("prefix.action name=toggleZoom")
+#endif
+
+        case .openSessionSwitcher:
+            // PREFIX+s → open workspace switcher
+            requestCommandPaletteSwitcher(preferredWindow: NSApp.keyWindow, source: "prefix.s")
+#if DEBUG
+            dlog("prefix.action name=openSessionSwitcher")
+#endif
+        }
+    }
+
+    func prefixKeyManager(_ manager: PrefixKeyManager, sendRawKeyToTerminal event: NSEvent) {
+        // Send the raw key event to the terminal
+        guard let window = NSApp.keyWindow,
+              let responder = window.firstResponder,
+              let ghosttyView = cmuxOwningGhosttyView(for: responder) else {
+#if DEBUG
+            dlog("prefix.passthrough noGhosttyView")
+#endif
+            return
+        }
+        ghosttyView.keyDown(with: event)
+#if DEBUG
+        dlog("prefix.passthrough sent")
+#endif
+    }
+
+    func prefixKeyManager(_ manager: PrefixKeyManager, didEnterPrefixMode entered: Bool) {
+        // Optional: Could show a visual indicator in the status bar
+#if DEBUG
+        dlog("prefix.mode entered=\(entered)")
+#endif
+    }
 }
