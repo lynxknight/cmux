@@ -724,19 +724,24 @@ private struct TerminalHostEditorView: View {
             Form {
                 Section {
                     TextField(TerminalHomeStrings.editorName, text: $host.name)
+                        .accessibilityIdentifier("terminal.hostEditor.name")
                     TextField(TerminalHomeStrings.editorHostname, text: $host.hostname)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                        .accessibilityIdentifier("terminal.hostEditor.hostname")
                     TextField(TerminalHomeStrings.editorPort, value: $host.port, format: .number)
                         .keyboardType(.numberPad)
+                        .accessibilityIdentifier("terminal.hostEditor.port")
                     TextField(TerminalHomeStrings.editorUsername, text: $host.username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                        .accessibilityIdentifier("terminal.hostEditor.username")
                     Picker(TerminalHomeStrings.editorAuthentication, selection: $host.sshAuthenticationMethod) {
                         Text(TerminalHomeStrings.editorAuthenticationPassword).tag(TerminalSSHAuthenticationMethod.password)
                         Text(TerminalHomeStrings.editorAuthenticationPrivateKey).tag(TerminalSSHAuthenticationMethod.privateKey)
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityIdentifier("terminal.hostEditor.authentication")
                 }
 
                 if host.source == .custom {
@@ -749,6 +754,7 @@ private struct TerminalHostEditorView: View {
 
                         if host.transportPreference == .remoteDaemon {
                             Toggle(TerminalHomeStrings.editorAllowsSSHFallback, isOn: $host.allowsSSHFallback)
+                                .accessibilityIdentifier("terminal.hostEditor.allowSSHFallback")
                             TextField(
                                 TerminalHomeStrings.editorDirectTLSPins,
                                 text: $directTLSPinsText,
@@ -758,6 +764,7 @@ private struct TerminalHostEditorView: View {
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled(true)
                             .font(.system(.footnote, design: .monospaced))
+                            .accessibilityIdentifier("terminal.hostEditor.directTLSPins")
                         }
                     } footer: {
                         Text(
@@ -777,6 +784,7 @@ private struct TerminalHostEditorView: View {
                                 set: { credentials.password = $0 }
                             )
                         )
+                        .accessibilityIdentifier("terminal.hostEditor.password")
                     } else {
                         TextEditor(
                             text: Binding(
@@ -788,6 +796,7 @@ private struct TerminalHostEditorView: View {
                         .font(.system(.footnote, design: .monospaced))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                        .accessibilityIdentifier("terminal.hostEditor.privateKey")
                     }
                 } footer: {
                     Text(
@@ -832,10 +841,12 @@ private struct TerminalHostEditorView: View {
                         .lineLimit(2...4)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                        .accessibilityIdentifier("terminal.hostEditor.bootstrap")
                 } footer: {
                     Text(TerminalHomeStrings.editorBootstrapFooter)
                 }
             }
+            .accessibilityIdentifier("terminal.hostEditor")
             .navigationTitle(host.hostname.isEmpty && host.username.isEmpty ? TerminalHomeStrings.editorNewTitle : TerminalHomeStrings.editorEditTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -843,12 +854,14 @@ private struct TerminalHostEditorView: View {
                     Button(TerminalHomeStrings.editorCancel) {
                         onCancel()
                     }
+                    .accessibilityIdentifier("terminal.hostEditor.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(TerminalHomeStrings.editorSave) {
                         onSave(normalizedHost, credentials.normalized)
                     }
                     .disabled(host.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityIdentifier("terminal.hostEditor.save")
                 }
             }
         }

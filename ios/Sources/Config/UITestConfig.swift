@@ -59,6 +59,15 @@ enum UITestConfig {
         #endif
     }
 
+    static var terminalSetupFixtureEnabled: Bool {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        return env["CMUX_UITEST_TERMINAL_SETUP_FIXTURE"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     static var terminalReconnectDelayOverride: Double? {
         #if DEBUG
         let env = ProcessInfo.processInfo.environment

@@ -129,7 +129,7 @@ jobs:
           RESULT_BUNDLE="$RUNNER_TEMP/cmux-ios-e2e.xcresult"
           rm -rf "$DERIVED_DATA" "$RESULT_BUNDLE"
           if [ "${{ github.event_name }}" = "push" ]; then
-            TEST_FILTERS=("TerminalHomeUITests" "TerminalInboxUITests" "TerminalReconnectUITests" "AuthPersistenceUITests")
+            TEST_FILTERS=("TerminalHomeUITests" "TerminalHostEditorUITests" "TerminalInboxUITests" "TerminalReconnectUITests" "AuthPersistenceUITests")
           else
             TEST_FILTERS=("$TEST_FILTER")
           fi
@@ -159,7 +159,7 @@ jobs:
 
       - name: Upload xcresult
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cmux-ios-e2e-xcresult
           path: ${{ runner.temp }}/cmux-ios-e2e.xcresult
@@ -167,7 +167,7 @@ jobs:
 
       - name: Upload simulator recording
         if: ${{ always() && inputs.record_video }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: cmux-ios-e2e-video
           path: ${{ env.CMUX_IOS_VIDEO_PATH }}

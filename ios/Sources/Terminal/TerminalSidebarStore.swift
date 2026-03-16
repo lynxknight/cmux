@@ -1292,6 +1292,34 @@ extension TerminalSidebarStore {
             eagerlyRestoreSessions: false
         )
     }
+
+    static func uiTestSetupFixture() -> TerminalSidebarStore {
+        let setupHost = TerminalHost(
+            stableID: "cmux-setup",
+            name: "Mac mini",
+            hostname: "",
+            username: "",
+            symbolName: "desktopcomputer",
+            palette: .mint,
+            sortIndex: 0,
+            source: .custom,
+            transportPreference: .rawSSH
+        )
+        let snapshot = TerminalStoreSnapshot(
+            hosts: [setupHost],
+            workspaces: [],
+            selectedWorkspaceID: nil
+        )
+        let snapshotStore = InMemoryTerminalSnapshotStore(snapshot: snapshot)
+        return TerminalSidebarStore(
+            snapshotStore: snapshotStore,
+            credentialsStore: InMemoryTerminalCredentialsStore(),
+            transportFactory: TerminalUITestConnectedTransportFactory(),
+            serverDiscovery: nil,
+            networkPathMonitor: nil,
+            eagerlyRestoreSessions: false
+        )
+    }
 }
 
 private struct TerminalUITestDirectReconnectTransportFactory: TerminalTransportFactory {
@@ -1304,6 +1332,17 @@ private struct TerminalUITestDirectReconnectTransportFactory: TerminalTransportF
         resumeState: TerminalRemoteDaemonResumeState?
     ) -> TerminalTransport {
         TerminalUITestDirectReconnectTransport(scenario: scenario)
+    }
+}
+
+private struct TerminalUITestConnectedTransportFactory: TerminalTransportFactory {
+    func makeTransport(
+        host: TerminalHost,
+        credentials: TerminalSSHCredentials,
+        sessionName: String,
+        resumeState: TerminalRemoteDaemonResumeState?
+    ) -> TerminalTransport {
+        TerminalUITestConnectedTransport()
     }
 }
 
@@ -1352,6 +1391,21 @@ private final class TerminalUITestDirectReconnectTransport: TerminalTransport, @
         runTask?.cancel()
         runTask = nil
     }
+}
+
+private final class TerminalUITestConnectedTransport: TerminalTransport, @unchecked Sendable {
+    var eventHandler: (@Sendable (TerminalTransportEvent) -> Void)?
+
+    func connect(initialSize: TerminalGridSize) async throws {
+        eventHandler?(.connected)
+        eventHandler?(.output(Data("cmux@fixture:~$ ".utf8)))
+    }
+
+    func send(_ data: Data) async throws {}
+
+    func resize(_ size: TerminalGridSize) async {}
+
+    func disconnect() async {}
 }
 #endif
 
