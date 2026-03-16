@@ -3437,6 +3437,216 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    // MARK: - Layout Cycling (tmux-style)
+
+    /// tmux layout types in cycle order
+    enum TmuxLayout: Int, CaseIterable {
+        case evenHorizontal = 0  // All panes side-by-side, equal widths
+        case evenVertical = 1    // All panes stacked, equal heights
+        case mainHorizontal = 2  // Main pane on top, others in row below
+        case mainVertical = 3    // Main pane on left, others stacked on right
+        case tiled = 4           // Grid layout
+
+        var next: TmuxLayout {
+            TmuxLayout(rawValue: (rawValue + 1) % TmuxLayout.allCases.count) ?? .evenHorizontal
+        }
+    }
+
+    /// Track current layout for cycling
+    private static var currentLayoutIndex: [UUID: TmuxLayout] = [:]
+
+    /// Cycle through pane layouts (like tmux next-layout).
+    /// Cycles: even-horizontal → even-vertical → main-horizontal → main-vertical → tiled
+    @discardableResult
+    func cycleLayout() -> Bool {
+        let paneCount = bonsplitController.allPaneIds.count
+        guard paneCount > 1 else { return false }
+
+        // Clear zoom if active
+        _ = bonsplitController.clearPaneZoom()
+
+        // Get current layout and advance to next
+        let currentLayout = Self.currentLayoutIndex[id] ?? .evenHorizontal
+        let nextLayout = currentLayout.next
+        Self.currentLayoutIndex[id] = nextLayout
+
+        return applyLayout(nextLayout)
+    }
+
+    private func applyLayout(_ layout: TmuxLayout) -> Bool {
+        // Collect all tabs in order
+        let allTabs = collectAllTabs()
+        guard allTabs.count > 1 else { return false }
+
+        // Save focused panel
+        let focusedPanel = focusedPanelId
+
+        // Consolidate all tabs to first pane
+        guard consolidateAllTabsToFirstPane() else { return false }
+
+        // Get the single pane with all tabs
+        guard let rootPaneId = bonsplitController.allPaneIds.first else { return false }
+        let tabs = bonsplitController.tabs(inPane: rootPaneId)
+        guard tabs.count > 1 else { return false }
+
+        // Apply the specific layout
+        switch layout {
+        case .evenHorizontal:
+            applyEvenLayout(tabs: tabs, rootPaneId: rootPaneId, orientation: .horizontal)
+        case .evenVertical:
+            applyEvenLayout(tabs: tabs, rootPaneId: rootPaneId, orientation: .vertical)
+        case .mainHorizontal:
+            applyMainLayout(tabs: tabs, rootPaneId: rootPaneId, mainOrientation: .vertical, secondaryOrientation: .horizontal)
+        case .mainVertical:
+            applyMainLayout(tabs: tabs, rootPaneId: rootPaneId, mainOrientation: .horizontal, secondaryOrientation: .vertical)
+        case .tiled:
+            applyTiledLayout(tabs: tabs, rootPaneId: rootPaneId)
+        }
+
+        // Equalize all splits
+        equalizeSplits()
+
+        // Restore focus
+        if let focusedPanel {
+            focusPanel(focusedPanel)
+        }
+
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.cycleLayout")
+        scheduleTerminalGeometryReconcile()
+
+        return true
+    }
+
+    /// even-horizontal or even-vertical: all panes in a line
+    private func applyEvenLayout(tabs: [Bonsplit.Tab], rootPaneId: PaneID, orientation: SplitOrientation) {
+        for i in 1..<tabs.count {
+            _ = bonsplitController.splitPane(
+                rootPaneId,
+                orientation: orientation,
+                movingTab: tabs[i].id,
+                insertFirst: false
+            )
+        }
+    }
+
+    /// main-horizontal: main pane on top, others in row below
+    /// main-vertical: main pane on left, others stacked on right
+    private func applyMainLayout(tabs: [Bonsplit.Tab], rootPaneId: PaneID, mainOrientation: SplitOrientation, secondaryOrientation: SplitOrientation) {
+        guard tabs.count > 1 else { return }
+
+        // First split: main pane vs secondary area
+        guard let secondaryPaneId = bonsplitController.splitPane(
+            rootPaneId,
+            orientation: mainOrientation,
+            movingTab: tabs[1].id,
+            insertFirst: false
+        ) else { return }
+
+        // Remaining tabs go into secondary area with secondary orientation
+        for i in 2..<tabs.count {
+            _ = bonsplitController.splitPane(
+                secondaryPaneId,
+                orientation: secondaryOrientation,
+                movingTab: tabs[i].id,
+                insertFirst: false
+            )
+        }
+
+        // Set main pane to take more space (60%)
+        if case .split(let splitNode) = bonsplitController.treeSnapshot(),
+           let splitId = UUID(uuidString: splitNode.id) {
+            _ = bonsplitController.setDividerPosition(0.6, forSplit: splitId)
+        }
+    }
+
+    /// tiled: grid layout (as close to square as possible)
+    private func applyTiledLayout(tabs: [Bonsplit.Tab], rootPaneId: PaneID) {
+        let count = tabs.count
+        guard count > 1 else { return }
+
+        // Calculate grid dimensions
+        let cols = Int(ceil(sqrt(Double(count))))
+        let rows = Int(ceil(Double(count) / Double(cols)))
+
+        // Build rows first (vertical splits), then columns within each row (horizontal splits)
+        var tabIndex = 1
+        var rowPaneIds: [PaneID] = [rootPaneId]
+
+        // Create row splits (vertical)
+        for _ in 1..<rows {
+            guard tabIndex < count else { break }
+            if let newRowPane = bonsplitController.splitPane(
+                rootPaneId,
+                orientation: .vertical,
+                movingTab: tabs[tabIndex].id,
+                insertFirst: false
+            ) {
+                rowPaneIds.append(newRowPane)
+                tabIndex += 1
+            }
+        }
+
+        // Now split each row horizontally for columns
+        for (rowIndex, rowPaneId) in rowPaneIds.enumerated() {
+            let colsInThisRow = (rowIndex == rows - 1) ? (count - rowIndex * cols) : cols
+            for _ in 1..<colsInThisRow {
+                guard tabIndex < count else { break }
+                _ = bonsplitController.splitPane(
+                    rowPaneId,
+                    orientation: .horizontal,
+                    movingTab: tabs[tabIndex].id,
+                    insertFirst: false
+                )
+                tabIndex += 1
+            }
+        }
+    }
+
+    private func collectAllTabs() -> [Bonsplit.Tab] {
+        var tabs: [Bonsplit.Tab] = []
+        for paneId in bonsplitController.allPaneIds {
+            tabs.append(contentsOf: bonsplitController.tabs(inPane: paneId))
+        }
+        return tabs
+    }
+
+    private func consolidateAllTabsToFirstPane() -> Bool {
+        guard let firstPaneId = bonsplitController.allPaneIds.first else { return false }
+
+        // Move all tabs from other panes to first pane
+        for paneId in bonsplitController.allPaneIds where paneId != firstPaneId {
+            for tab in bonsplitController.tabs(inPane: paneId) {
+                _ = bonsplitController.moveTab(tab.id, toPane: firstPaneId, atIndex: nil)
+            }
+        }
+
+        // Close empty panes
+        for paneId in bonsplitController.allPaneIds where paneId != firstPaneId {
+            _ = bonsplitController.closePane(paneId)
+        }
+
+        return true
+    }
+
+    private func equalizeSplits() {
+        let tree = bonsplitController.treeSnapshot()
+        equalizeSplitsRecursive(node: tree)
+    }
+
+    private func equalizeSplitsRecursive(node: ExternalTreeNode) {
+        switch node {
+        case .pane:
+            return
+        case .split(let splitNode):
+            if let splitId = UUID(uuidString: splitNode.id) {
+                _ = bonsplitController.setDividerPosition(0.5, forSplit: splitId)
+            }
+            equalizeSplitsRecursive(node: splitNode.first)
+            equalizeSplitsRecursive(node: splitNode.second)
+        }
+    }
+
     // MARK: - Context Menu Shortcuts
 
     static func buildContextMenuShortcuts() -> [TabContextAction: KeyboardShortcut] {

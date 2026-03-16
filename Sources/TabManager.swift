@@ -2722,6 +2722,13 @@ class TabManager: ObservableObject {
         return tab.toggleSplitZoom(panelId: focusedPanelId)
     }
 
+    /// Cycle through pane layouts (like tmux next-layout).
+    @discardableResult
+    func cycleLayout() -> Bool {
+        guard let tab = selectedWorkspace else { return false }
+        return tab.cycleLayout()
+    }
+
     private func equalizeSplits(
         in node: ExternalTreeNode,
         controller: BonsplitController,

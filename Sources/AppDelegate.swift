@@ -11602,6 +11602,13 @@ extension AppDelegate: PrefixKeyManagerDelegate {
 #if DEBUG
             dlog("prefix.action name=openSessionSwitcher")
 #endif
+
+        case .cycleLayout:
+            // PREFIX+Space → cycle through pane layouts
+            _ = tabManager?.cycleLayout()
+#if DEBUG
+            dlog("prefix.action name=cycleLayout")
+#endif
         }
     }
 

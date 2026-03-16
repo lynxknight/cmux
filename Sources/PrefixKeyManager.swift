@@ -55,6 +55,8 @@ final class PrefixKeyManager {
         case toggleZoom
         /// PREFIX+s → open workspace/session switcher
         case openSessionSwitcher
+        /// PREFIX+Space → cycle through pane layouts (like tmux next-layout)
+        case cycleLayout
     }
 
     // MARK: - Properties
@@ -81,6 +83,7 @@ final class PrefixKeyManager {
         "-": .splitHorizontal,      // PREFIX+- → stacked split
         "z": .toggleZoom,           // PREFIX+z → toggle zoom
         "s": .openSessionSwitcher,  // PREFIX+s → workspace switcher
+        " ": .cycleLayout,          // PREFIX+Space → cycle layouts
     ]
 
     /// Key codes for binding keys (for fallback matching)
@@ -89,6 +92,7 @@ final class PrefixKeyManager {
         27: .splitHorizontal, // kVK_ANSI_Minus
         6: .toggleZoom,       // kVK_ANSI_Z
         1: .openSessionSwitcher, // kVK_ANSI_S
+        49: .cycleLayout,     // kVK_Space
     ]
 
     // MARK: - Public API
