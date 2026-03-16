@@ -20,17 +20,16 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (macos-15 or macos-26)"
+        description: "Runner (Depot)"
         required: false
-        default: "macos-15"
+        default: "depot-macos-latest"
         type: choice
         options:
-          - macos-15
-          - macos-26
+          - depot-macos-latest
 
 jobs:
   e2e:
-    runs-on: ${{ inputs.runner || 'macos-15' }}
+    runs-on: ${{ inputs.runner || 'depot-macos-latest' }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
     steps:
@@ -161,8 +160,8 @@ jobs:
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         with:
           path: .ci-source-packages
-          key: spm-${{ inputs.runner || 'macos-15' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ inputs.runner || 'macos-15' }}-
+          key: spm-${{ inputs.runner || 'depot-macos-latest' }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ inputs.runner || 'depot-macos-latest' }}-
 
       - name: Resolve Swift packages
         run: |
