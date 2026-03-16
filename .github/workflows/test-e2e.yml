@@ -27,6 +27,9 @@ on:
         options:
           - macos-26
           - macos-15
+  push:
+    branches:
+      - task-move-ios-app-into-cmux-repo
 
 jobs:
   e2e:
@@ -125,17 +128,26 @@ jobs:
           DERIVED_DATA="$RUNNER_TEMP/cmux-ios-e2e"
           RESULT_BUNDLE="$RUNNER_TEMP/cmux-ios-e2e.xcresult"
           rm -rf "$DERIVED_DATA" "$RESULT_BUNDLE"
-          xcodebuild test \
-            -project cmux.xcodeproj \
-            -scheme cmux \
-            -configuration Debug \
-            -destination "id=${{ steps.simulator.outputs.id }}" \
-            -derivedDataPath "$DERIVED_DATA" \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-            -disableAutomaticPackageResolution \
-            -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            -only-testing:cmuxUITests/"$TEST_FILTER"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TEST_FILTERS=("TerminalHomeUITests" "TerminalReconnectUITests")
+          else
+            TEST_FILTERS=("$TEST_FILTER")
+          fi
+
+          for FILTER in "${TEST_FILTERS[@]}"; do
+            echo "Running cmuxUITests/$FILTER"
+            xcodebuild test \
+              -project cmux.xcodeproj \
+              -scheme cmux \
+              -configuration Debug \
+              -destination "id=${{ steps.simulator.outputs.id }}" \
+              -derivedDataPath "$DERIVED_DATA" \
+              -resultBundlePath "$RESULT_BUNDLE" \
+              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+              -disableAutomaticPackageResolution \
+              -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
+              -only-testing:cmuxUITests/"$FILTER"
+          done
 
       - name: Stop simulator recording
         if: ${{ always() && inputs.record_video && env.CMUX_IOS_RECORD_PID != '' }}
