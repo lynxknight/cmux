@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Validate Depot runner guards
+      - name: Validate WarpBuild runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
       - name: Validate create-dmg version pinning
@@ -50,7 +50,7 @@ jobs:
         run: bun tsc --noEmit
 
   tests:
-    runs-on: macos-15
+    runs-on: warp-macos-15-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -184,9 +184,9 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
 
   tests-depot:
-    # Never run Depot jobs for fork pull requests (avoid billing on external PRs).
+    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: depot-macos-latest
+    runs-on: warp-macos-15-arm64-6x
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
