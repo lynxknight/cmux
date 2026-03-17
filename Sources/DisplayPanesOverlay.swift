@@ -43,6 +43,16 @@ final class DisplayPanesOverlayController {
             return
         }
 
+        // The terminal portal (WindowTerminalHostView) is installed above contentView
+        // in the themeFrame (contentView.superview). We must add our overlay there too,
+        // otherwise terminal surfaces render on top of the overlay.
+        guard let themeFrame = contentView.superview else {
+            #if DEBUG
+            dlog("displayPanes.show error=noThemeFrame")
+            #endif
+            return
+        }
+
         // Get current pane geometries
         let snapshot = workspace.bonsplitController.layoutSnapshot()
         guard !snapshot.panes.isEmpty else {
@@ -52,17 +62,19 @@ final class DisplayPanesOverlayController {
             return
         }
 
-        // Convert pane geometries to our format with PaneID
+        // Convert pane geometries from global (screen) coordinates to themeFrame-local coordinates
         paneInfos = snapshot.panes.compactMap { pane in
             guard let paneId = PaneID(uuidString: pane.paneId) else { return nil }
+            let globalFrame = CGRect(
+                x: pane.frame.x,
+                y: pane.frame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            let localFrame = themeFrame.convert(globalFrame, from: nil)
             return (
                 paneId: paneId,
-                frame: CGRect(
-                    x: pane.frame.x,
-                    y: pane.frame.y,
-                    width: pane.frame.width,
-                    height: pane.frame.height
-                )
+                frame: localFrame
             )
         }
 
@@ -76,15 +88,14 @@ final class DisplayPanesOverlayController {
         // Create overlay view - using pure AppKit NSView for stability
         let overlay = DisplayPanesNSOverlayView(
             paneFrames: paneInfos.map { $0.frame },
-            containerHeight: contentView.bounds.height,
             onDismiss: { [weak self] in
                 self?.hide()
             }
         )
-        overlay.frame = contentView.bounds
+        overlay.frame = themeFrame.bounds
         overlay.autoresizingMask = [.width, .height]
 
-        contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+        themeFrame.addSubview(overlay, positioned: .above, relativeTo: nil)
         self.overlayView = overlay
 
         // Start key monitor for number input
@@ -197,12 +208,10 @@ final class DisplayPanesOverlayController {
 /// Uses direct drawing via draw(_:) for maximum reliability.
 final class DisplayPanesNSOverlayView: NSView {
     private let paneFrames: [CGRect]
-    private let containerHeight: CGFloat
     private let onDismiss: () -> Void
 
-    init(paneFrames: [CGRect], containerHeight: CGFloat, onDismiss: @escaping () -> Void) {
+    init(paneFrames: [CGRect], onDismiss: @escaping () -> Void) {
         self.paneFrames = paneFrames
-        self.containerHeight = containerHeight
         self.onDismiss = onDismiss
         super.init(frame: .zero)
     }
@@ -231,10 +240,8 @@ final class DisplayPanesNSOverlayView: NSView {
         for (index, frame) in paneFrames.enumerated() {
             let displayNumber = index + DisplayPanesOverlayController.baseIndex
 
-            // Convert from bottom-left origin to flipped coordinates
-            let flippedY = containerHeight - frame.origin.y - frame.height
-            let centerX = frame.origin.x + frame.width / 2
-            let centerY = flippedY + frame.height / 2
+            let centerX = frame.midX
+            let centerY = frame.midY
 
             // Draw rounded rectangle background
             let boxSize: CGFloat = 100
