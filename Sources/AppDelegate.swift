@@ -1949,6 +1949,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var prefixKeyManager = PrefixKeyManager()
+    private let displayPanesOverlayController = DisplayPanesOverlayController()
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -7914,8 +7915,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        // Handle tmux-style PREFIX key (Ctrl+A) before other shortcuts
-        if prefixKeyManager.handleKeyEvent(event) {
+        // Handle tmux-style PREFIX key (Ctrl+A) before other shortcuts.
+        // Skip PREFIX handling when first responder is a text input field (NSTextView field editor
+        // or browser webview), so Ctrl+A can perform its standard "select all" / "beginning of line"
+        // function in text inputs.
+        let prefixKeyBypassed: Bool = {
+            guard let window = event.window ?? NSApp.keyWindow,
+                  let responder = window.firstResponder else {
+                return false
+            }
+            // Field editor (NSTextField, command palette search, etc.)
+            if let textView = responder as? NSTextView, textView.isFieldEditor {
+                return true
+            }
+            // Browser webview (Claude Code, web apps, etc.) - text inputs inside web content
+            if responder is CmuxWebView {
+                return true
+            }
+            // Check responder chain for CmuxWebView
+            var current: NSResponder? = responder.nextResponder
+            while let next = current {
+                if next is CmuxWebView {
+                    return true
+                }
+                current = next.nextResponder
+            }
+            return false
+        }()
+#if DEBUG
+        if prefixKeyBypassed, matchShortcut(event: event, shortcut: PrefixKeyManager.prefixShortcut) {
+            let frType = NSApp.keyWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            dlog("prefix.bypass reason=textInput fr=\(frType)")
+        }
+#endif
+        if !prefixKeyBypassed, prefixKeyManager.handleKeyEvent(event) {
             return true
         }
 
@@ -11608,6 +11641,15 @@ extension AppDelegate: PrefixKeyManagerDelegate {
             _ = tabManager?.cycleLayout()
 #if DEBUG
             dlog("prefix.action name=cycleLayout")
+#endif
+
+        case .displayPanes:
+            // PREFIX+q → show pane numbers (like tmux display-panes)
+            if let workspace = tabManager?.selectedWorkspace {
+                displayPanesOverlayController.show(workspace: workspace)
+            }
+#if DEBUG
+            dlog("prefix.action name=displayPanes")
 #endif
         }
     }

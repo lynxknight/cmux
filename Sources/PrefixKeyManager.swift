@@ -57,6 +57,8 @@ final class PrefixKeyManager {
         case openSessionSwitcher
         /// PREFIX+Space → cycle through pane layouts (like tmux next-layout)
         case cycleLayout
+        /// PREFIX+q → display pane numbers (like tmux display-panes, base-index=1)
+        case displayPanes
     }
 
     // MARK: - Properties
@@ -84,6 +86,7 @@ final class PrefixKeyManager {
         "z": .toggleZoom,           // PREFIX+z → toggle zoom
         "s": .openSessionSwitcher,  // PREFIX+s → workspace switcher
         " ": .cycleLayout,          // PREFIX+Space → cycle layouts
+        "q": .displayPanes,         // PREFIX+q → display pane numbers
     ]
 
     /// Key codes for binding keys (for fallback matching)
@@ -93,6 +96,7 @@ final class PrefixKeyManager {
         6: .toggleZoom,       // kVK_ANSI_Z
         1: .openSessionSwitcher, // kVK_ANSI_S
         49: .cycleLayout,     // kVK_Space
+        12: .displayPanes,    // kVK_ANSI_Q
     ]
 
     // MARK: - Public API
