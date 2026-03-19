@@ -5457,6 +5457,15 @@ struct ContentView: View {
             )
         )
 
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.reloadConfig",
+                title: constant(String(localized: "command.reloadConfig.title", defaultValue: "Reload Config")),
+                subtitle: constant(String(localized: "command.reloadConfig.subtitle", defaultValue: "Settings")),
+                keywords: ["reload", "config", "configuration", "hotkey", "keybinding", "shortcut", "cmux.conf"]
+            )
+        )
+
         return contributions
     }
 
@@ -5781,6 +5790,9 @@ struct ContentView: View {
                 NSSound.beep()
                 return
             }
+        }
+        registry.register(commandId: "palette.reloadConfig") {
+            AppDelegate.shared?.reloadCmuxConfig()
         }
     }
 

@@ -186,7 +186,26 @@ enum KeyboardShortcutSettings {
         }
     }
 
+    /// Cached config-file overrides, populated by `reloadConfigOverrides()`.
+    /// Using nonisolated storage so `shortcut(for:)` remains callable from any context.
+    private static var configOverrides: [Action: StoredShortcut] = [:]
+
+    @MainActor
+    static func reloadConfigOverrides() {
+        var overrides: [Action: StoredShortcut] = [:]
+        for action in Action.allCases {
+            if let override = CmuxConfig.shared.shortcutOverride(for: action) {
+                overrides[action] = override
+            }
+        }
+        configOverrides = overrides
+    }
+
     static func shortcut(for action: Action) -> StoredShortcut {
+        // Config file overrides take priority over UserDefaults
+        if let configOverride = configOverrides[action] {
+            return configOverride
+        }
         guard let data = UserDefaults.standard.data(forKey: action.defaultsKey),
               let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
             return action.defaultShortcut

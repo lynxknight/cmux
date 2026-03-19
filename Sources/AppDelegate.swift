@@ -2164,6 +2164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Set up PREFIX key manager delegate
         prefixKeyManager.delegate = self
 
+        // Load config file and apply PREFIX bindings
+        applyCmuxConfig()
+
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
@@ -11698,5 +11701,25 @@ extension AppDelegate: PrefixKeyManagerDelegate {
 #if DEBUG
         dlog("prefix.mode entered=\(entered)")
 #endif
+    }
+
+    // MARK: - Config
+
+    func applyCmuxConfig() {
+        let config = CmuxConfig.shared
+        prefixKeyManager.applyConfig(config.prefixConfig)
+        KeyboardShortcutSettings.reloadConfigOverrides()
+#if DEBUG
+        if let error = config.lastError {
+            dlog("config.apply error=\(error)")
+        } else {
+            dlog("config.apply ok")
+        }
+#endif
+    }
+
+    func reloadCmuxConfig() {
+        CmuxConfig.shared.reload()
+        applyCmuxConfig()
     }
 }

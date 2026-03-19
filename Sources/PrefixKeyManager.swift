@@ -46,7 +46,7 @@ final class PrefixKeyManager {
     }
 
     /// Actions that can be triggered by PREFIX bindings
-    enum PrefixAction {
+    enum PrefixAction: Equatable {
         /// PREFIX+\ → vertical split (side-by-side panes)
         case splitVertical
         /// PREFIX+- → horizontal split (stacked panes)
@@ -83,8 +83,8 @@ final class PrefixKeyManager {
         control: true
     )
 
-    /// Bindings lookup table: key after PREFIX → action
-    private let bindings: [String: PrefixAction] = [
+    /// Default bindings lookup table: key after PREFIX → action
+    static let defaultBindings: [String: PrefixAction] = [
         "\\": .splitVertical,       // PREFIX+\ → side-by-side split
         "-": .splitHorizontal,      // PREFIX+- → stacked split
         "z": .toggleZoom,           // PREFIX+z → toggle zoom
@@ -95,8 +95,11 @@ final class PrefixKeyManager {
         "u": .toggleUnread,         // PREFIX+u → toggle unread on focused tab
     ]
 
-    /// Key codes for binding keys (for fallback matching)
-    private let bindingKeyCodes: [UInt16: PrefixAction] = [
+    /// Active bindings (configurable via .cmux.conf)
+    private var bindings: [String: PrefixAction] = PrefixKeyManager.defaultBindings
+
+    /// Default key codes for binding keys (for fallback matching)
+    static let defaultBindingKeyCodes: [UInt16: PrefixAction] = [
         42: .splitVertical,   // kVK_ANSI_Backslash
         27: .splitHorizontal, // kVK_ANSI_Minus
         6: .toggleZoom,       // kVK_ANSI_Z
@@ -106,6 +109,70 @@ final class PrefixKeyManager {
         7: .killPane,        // kVK_ANSI_X
         32: .toggleUnread,   // kVK_ANSI_U
     ]
+
+    /// Active key codes (rebuilt when bindings change)
+    private var bindingKeyCodes: [UInt16: PrefixAction] = PrefixKeyManager.defaultBindingKeyCodes
+
+    /// Mapping from key character to macOS virtual key code (for keyCode fallback matching)
+    private static let charToKeyCode: [String: UInt16] = [
+        "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
+        "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
+        "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
+        "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29,
+        "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37,
+        "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44,
+        "n": 45, "m": 46, ".": 47, " ": 49, "`": 50,
+    ]
+
+    // MARK: - Configuration
+
+    /// Apply config from CmuxConfig. Pass nil to reset to defaults.
+    func applyConfig(_ config: CmuxConfig.PrefixConfig?) {
+        guard let config else {
+            bindings = Self.defaultBindings
+            bindingKeyCodes = Self.defaultBindingKeyCodes
+            return
+        }
+
+        if !config.bindings.isEmpty {
+            bindings = config.bindings
+            // Rebuild keyCode lookup from the new character bindings
+            var keyCodes: [UInt16: PrefixAction] = [:]
+            for (key, action) in config.bindings {
+                if let code = Self.charToKeyCode[key] {
+                    keyCodes[code] = action
+                }
+            }
+            bindingKeyCodes = keyCodes
+        }
+
+        if let key = config.key {
+            customPrefixShortcut = key
+        } else {
+            customPrefixShortcut = nil
+        }
+
+        if let timeout = config.timeout {
+            customTimeout = timeout
+        } else {
+            customTimeout = nil
+        }
+    }
+
+    /// Custom prefix key override (nil = use default Ctrl+A)
+    private var customPrefixShortcut: StoredShortcut?
+    /// Custom timeout override (nil = use default)
+    private var customTimeout: TimeInterval?
+
+    /// The active prefix shortcut (custom or default)
+    var activePrefixShortcut: StoredShortcut {
+        customPrefixShortcut ?? Self.prefixShortcut
+    }
+
+    /// The active timeout (custom or default)
+    var activeTimeout: TimeInterval {
+        customTimeout ?? Self.timeout
+    }
 
     // MARK: - Public API
 
@@ -188,18 +255,19 @@ final class PrefixKeyManager {
     // MARK: - Key Matching
 
     private func matchesPrefixKey(event: NSEvent) -> Bool {
+        let shortcut = activePrefixShortcut
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
-        guard flags == Self.prefixShortcut.modifierFlags else { return false }
+        guard flags == shortcut.modifierFlags else { return false }
 
         // Match by character
         let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
-        if chars == Self.prefixShortcut.key {
+        if chars == shortcut.key {
             return true
         }
 
-        // Fallback: match by keyCode for Ctrl+A (keyCode 0 = kVK_ANSI_A)
-        if event.keyCode == 0 {
+        // Fallback: match by keyCode
+        if let expectedCode = Self.charToKeyCode[shortcut.key], event.keyCode == expectedCode {
             return true
         }
 
@@ -236,7 +304,7 @@ final class PrefixKeyManager {
             }
         }
         timeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.timeout, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + activeTimeout, execute: workItem)
     }
 
     private func cancelTimeout() {

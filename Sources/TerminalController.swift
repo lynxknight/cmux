@@ -1794,6 +1794,9 @@ class TerminalController {
         case "reload_config":
             return reloadConfig(args)
 
+        case "reload_cmux_config":
+            return reloadCmuxConfig()
+
         case "refresh_surfaces":
             return refreshSurfaces()
 
@@ -9837,6 +9840,7 @@ class TerminalController {
           focus_surface_by_panel <panel_id> - Focus surface by panel ID
           close_surface [id|idx]          - Close surface (collapse split)
           reload_config [soft]            - Reload Ghostty config and refresh terminals
+          reload_cmux_config              - Reload ~/.cmux.conf (keybindings, prefix)
           refresh_surfaces                - Force refresh all terminals
           surface_health [workspace]      - Check view health of all surfaces
 
@@ -14136,6 +14140,16 @@ class TerminalController {
             GhosttyApp.shared.reloadConfiguration(soft: soft, source: "socket.reload_config")
         }
         return soft ? "OK Reloaded config (soft)" : "OK Reloaded config"
+    }
+
+    private func reloadCmuxConfig() -> String {
+        v2MainSync {
+            AppDelegate.shared?.reloadCmuxConfig()
+        }
+        if let error = CmuxConfig.shared.lastError {
+            return "ERROR: \(error)"
+        }
+        return "OK Reloaded cmux config from \(CmuxConfig.shared.configPath)"
     }
 
     private func refreshSurfaces() -> String {
