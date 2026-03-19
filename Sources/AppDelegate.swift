@@ -11677,6 +11677,20 @@ extension AppDelegate: PrefixKeyManagerDelegate {
 #if DEBUG
             dlog("prefix.action name=toggleUnread")
 #endif
+
+        case .reloadConfig:
+            // PREFIX+r → reload config and show notification
+            reloadCmuxConfig()
+            let message: String
+            if let error = CmuxConfig.shared.lastError {
+                message = String(localized: "config.reload.error", defaultValue: "Config error: \(error)")
+            } else {
+                message = String(localized: "config.reload.success", defaultValue: "Config reloaded")
+            }
+            showToast(message)
+#if DEBUG
+            dlog("prefix.action name=reloadConfig")
+#endif
         }
     }
 
@@ -11704,6 +11718,55 @@ extension AppDelegate: PrefixKeyManagerDelegate {
     }
 
     // MARK: - Config
+
+    func showToast(_ message: String, duration: TimeInterval = 1.5) {
+        toastHideWorkItem?.cancel()
+        toastPanel?.orderOut(nil)
+
+        let label = NSTextField(labelWithString: message)
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .white
+        label.alignment = .center
+        label.sizeToFit()
+
+        let padding: CGFloat = 24
+        let panelWidth = label.frame.width + padding * 2
+        let panelHeight: CGFloat = 40
+
+        guard let screen = NSApp.keyWindow?.screen ?? NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        let origin = NSPoint(
+            x: screenFrame.midX - panelWidth / 2,
+            y: screenFrame.midY - panelHeight / 2
+        )
+
+        let panel = NSPanel(
+            contentRect: NSRect(origin: origin, size: NSSize(width: panelWidth, height: panelHeight)),
+            styleMask: [.nonactivatingPanel, .hudWindow],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.level = .statusBar
+        panel.backgroundColor = NSColor.black.withAlphaComponent(0.75)
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.contentView = label
+        label.frame = NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight)
+        panel.orderFrontRegardless()
+
+        toastPanel = panel
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.toastPanel?.orderOut(nil)
+            self?.toastPanel = nil
+        }
+        toastHideWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: workItem)
+    }
+
+    private var toastPanel: NSPanel?
+    private var toastHideWorkItem: DispatchWorkItem?
 
     func applyCmuxConfig() {
         let config = CmuxConfig.shared

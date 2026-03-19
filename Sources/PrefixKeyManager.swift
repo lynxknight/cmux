@@ -63,6 +63,8 @@ final class PrefixKeyManager {
         case killPane
         /// PREFIX+u → toggle unread on focused tab
         case toggleUnread
+        /// PREFIX+r → reload config
+        case reloadConfig
     }
 
     // MARK: - Properties
@@ -93,6 +95,7 @@ final class PrefixKeyManager {
         "q": .displayPanes,         // PREFIX+q → display pane numbers
         "x": .killPane,             // PREFIX+x → kill current pane
         "u": .toggleUnread,         // PREFIX+u → toggle unread on focused tab
+        "r": .reloadConfig,         // PREFIX+r → reload config
     ]
 
     /// Active bindings (configurable via .cmux.conf)
@@ -108,6 +111,7 @@ final class PrefixKeyManager {
         12: .displayPanes,    // kVK_ANSI_Q
         7: .killPane,        // kVK_ANSI_X
         32: .toggleUnread,   // kVK_ANSI_U
+        15: .reloadConfig,   // kVK_ANSI_R
     ]
 
     /// Active key codes (rebuilt when bindings change)
