@@ -59,6 +59,10 @@ final class PrefixKeyManager {
         case cycleLayout
         /// PREFIX+q → display pane numbers (like tmux display-panes, base-index=1)
         case displayPanes
+        /// PREFIX+x → kill current pane (like tmux kill-pane)
+        case killPane
+        /// PREFIX+u → toggle unread on focused tab
+        case toggleUnread
     }
 
     // MARK: - Properties
@@ -87,6 +91,8 @@ final class PrefixKeyManager {
         "s": .openSessionSwitcher,  // PREFIX+s → workspace switcher
         " ": .cycleLayout,          // PREFIX+Space → cycle layouts
         "q": .displayPanes,         // PREFIX+q → display pane numbers
+        "x": .killPane,             // PREFIX+x → kill current pane
+        "u": .toggleUnread,         // PREFIX+u → toggle unread on focused tab
     ]
 
     /// Key codes for binding keys (for fallback matching)
@@ -97,6 +103,8 @@ final class PrefixKeyManager {
         1: .openSessionSwitcher, // kVK_ANSI_S
         49: .cycleLayout,     // kVK_Space
         12: .displayPanes,    // kVK_ANSI_Q
+        7: .killPane,        // kVK_ANSI_X
+        32: .toggleUnread,   // kVK_ANSI_U
     ]
 
     // MARK: - Public API

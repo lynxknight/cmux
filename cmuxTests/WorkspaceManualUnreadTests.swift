@@ -106,6 +106,46 @@ final class WorkspaceManualUnreadTests: XCTestCase {
             )
         )
     }
+
+    // MARK: - manualOnlyUnreadCount
+
+    func testManualOnlyUnreadCountReturnsCountWhenNoNotifications() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let count = Workspace.manualOnlyUnreadCount(
+            manualUnreadPanelIds: [panelA, panelB],
+            notificationUnreadPanelIds: []
+        )
+        XCTAssertEqual(count, 2)
+    }
+
+    func testManualOnlyUnreadCountExcludesPanelsWithUnreadNotifications() {
+        let panelA = UUID()
+        let panelB = UUID()
+        let panelC = UUID()
+        let count = Workspace.manualOnlyUnreadCount(
+            manualUnreadPanelIds: [panelA, panelB, panelC],
+            notificationUnreadPanelIds: [panelA, panelC]
+        )
+        XCTAssertEqual(count, 1)
+    }
+
+    func testManualOnlyUnreadCountReturnsZeroWhenAllPanelsHaveNotifications() {
+        let panelA = UUID()
+        let count = Workspace.manualOnlyUnreadCount(
+            manualUnreadPanelIds: [panelA],
+            notificationUnreadPanelIds: [panelA]
+        )
+        XCTAssertEqual(count, 0)
+    }
+
+    func testManualOnlyUnreadCountReturnsZeroWhenNoManualUnread() {
+        let count = Workspace.manualOnlyUnreadCount(
+            manualUnreadPanelIds: [],
+            notificationUnreadPanelIds: [UUID()]
+        )
+        XCTAssertEqual(count, 0)
+    }
 }
 
 final class CommandPaletteFuzzyMatcherTests: XCTestCase {

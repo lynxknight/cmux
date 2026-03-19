@@ -11651,6 +11651,29 @@ extension AppDelegate: PrefixKeyManagerDelegate {
 #if DEBUG
             dlog("prefix.action name=displayPanes")
 #endif
+
+        case .killPane:
+            // PREFIX+x → kill current pane (like tmux kill-pane)
+            tabManager?.closeCurrentPanelWithConfirmation()
+#if DEBUG
+            dlog("prefix.action name=killPane")
+#endif
+
+        case .toggleUnread:
+            // PREFIX+u → toggle unread on focused tab
+            if let workspace = tabManager?.selectedWorkspace,
+               let panelId = workspace.focusedPanelId {
+                let hasUnread = workspace.manualUnreadPanelIds.contains(panelId)
+                    || (notificationStore?.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId) ?? false)
+                if hasUnread {
+                    workspace.markPanelRead(panelId)
+                } else {
+                    workspace.markPanelUnread(panelId)
+                }
+            }
+#if DEBUG
+            dlog("prefix.action name=toggleUnread")
+#endif
         }
     }
 

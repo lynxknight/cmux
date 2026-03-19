@@ -904,24 +904,20 @@ struct cmuxApp: App {
         closeWorkspaceIds(workspaceIds, in: manager, allowPinned: false)
     }
 
-    private func selectedWorkspaceHasUnreadNotifications(in manager: TabManager) -> Bool {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && !$0.isRead }
-    }
-
-    private func selectedWorkspaceHasReadNotifications(in manager: TabManager) -> Bool {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return false }
-        return notificationStore.notifications.contains { $0.tabId == workspaceId && $0.isRead }
+    private func selectedWorkspaceHasAnyUnread(in manager: TabManager) -> Bool {
+        guard let workspace = manager.selectedWorkspace else { return false }
+        let hasUnreadNotifications = notificationStore.notifications.contains { $0.tabId == workspace.id && !$0.isRead }
+        return hasUnreadNotifications || !workspace.manualUnreadPanelIds.isEmpty
     }
 
     private func markSelectedWorkspaceRead(in manager: TabManager) {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return }
-        notificationStore.markRead(forTabId: workspaceId)
+        guard let workspace = manager.selectedWorkspace else { return }
+        workspace.markAllPanelsRead()
     }
 
     private func markSelectedWorkspaceUnread(in manager: TabManager) {
-        guard let workspaceId = manager.selectedWorkspace?.id else { return }
-        notificationStore.markUnread(forTabId: workspaceId)
+        guard let workspace = manager.selectedWorkspace else { return }
+        workspace.markAllPanelsUnread()
     }
 
     @ViewBuilder
@@ -1013,12 +1009,11 @@ struct cmuxApp: App {
         Button(String(localized: "contextMenu.markWorkspaceRead", defaultValue: "Mark Workspace as Read")) {
             markSelectedWorkspaceRead(in: manager)
         }
-        .disabled(!selectedWorkspaceHasUnreadNotifications(in: manager))
+        .disabled(!selectedWorkspaceHasAnyUnread(in: manager))
 
         Button(String(localized: "contextMenu.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread")) {
             markSelectedWorkspaceUnread(in: manager)
         }
-        .disabled(!selectedWorkspaceHasReadNotifications(in: manager))
     }
 
     @ViewBuilder

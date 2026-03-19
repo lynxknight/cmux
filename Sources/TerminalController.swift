@@ -3506,11 +3506,11 @@ class TerminalController {
                 finish(["closed": closed])
 
             case "mark_read":
-                AppDelegate.shared?.notificationStore?.markRead(forTabId: workspace.id)
+                workspace.markAllPanelsRead()
                 finish()
 
             case "mark_unread":
-                AppDelegate.shared?.notificationStore?.markUnread(forTabId: workspace.id)
+                workspace.markAllPanelsUnread()
                 finish()
 
             default:

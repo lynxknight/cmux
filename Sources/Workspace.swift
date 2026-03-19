@@ -1609,6 +1609,47 @@ final class Workspace: Identifiable, ObservableObject {
         syncUnreadBadgeStateForPanel(panelId)
     }
 
+    /// Marks all panels in this workspace as manually unread (for sidebar "Mark Workspace as Unread").
+    func markAllPanelsUnread() {
+        let now = Date()
+        for panelId in panels.keys {
+            guard manualUnreadPanelIds.insert(panelId).inserted else { continue }
+            manualUnreadMarkedAt[panelId] = now
+            syncUnreadBadgeStateForPanel(panelId)
+        }
+    }
+
+    /// Clears all unread state (manual + notifications) for this workspace (for sidebar "Mark Workspace as Read").
+    func markAllPanelsRead() {
+        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+        let previouslyUnread = manualUnreadPanelIds
+        manualUnreadPanelIds.removeAll()
+        manualUnreadMarkedAt.removeAll()
+        for panelId in previouslyUnread {
+            syncUnreadBadgeStateForPanel(panelId)
+        }
+    }
+
+    /// The number of manually-unread panels that don't already have unread notifications.
+    /// Used by the sidebar badge to avoid double-counting.
+    func manualOnlyUnreadCount(notificationStore: TerminalNotificationStore) -> Int {
+        Self.manualOnlyUnreadCount(
+            manualUnreadPanelIds: manualUnreadPanelIds,
+            notificationUnreadPanelIds: Set(
+                notificationStore.notifications
+                    .filter { $0.tabId == id && !$0.isRead }
+                    .compactMap { $0.surfaceId }
+            )
+        )
+    }
+
+    static func manualOnlyUnreadCount(
+        manualUnreadPanelIds: Set<UUID>,
+        notificationUnreadPanelIds: Set<UUID>
+    ) -> Int {
+        manualUnreadPanelIds.subtracting(notificationUnreadPanelIds).count
+    }
+
     static func shouldClearManualUnread(
         previousFocusedPanelId: UUID?,
         nextFocusedPanelId: UUID,

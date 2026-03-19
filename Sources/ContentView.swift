@@ -1481,6 +1481,7 @@ struct ContentView: View {
         let kindLabel: String?
         let keywords: [String]
         let dismissOnRun: Bool
+        let showsSubtitle: Bool
         let action: () -> Void
 
         var searchableTexts: [String] {
@@ -1621,6 +1622,7 @@ struct ContentView: View {
         let id: UUID
         let displayName: String
         let metadata: CommandPaletteSwitcherSearchMetadata
+        let descriptionFingerprint: Int
         let surfaces: [CommandPaletteSwitcherFingerprintSurface]
     }
 
@@ -3070,9 +3072,12 @@ struct ContentView: View {
         let commandPaletteListMaxHeight: CGFloat = 450
         let commandPaletteRowHeight: CGFloat = 24
         let commandPaletteEmptyStateHeight: CGFloat = 44
-        let commandPaletteListContentHeight = visibleResults.isEmpty
+        let hasSwitcherSubtitles = visibleResults.contains { $0.command.showsSubtitle && !$0.command.subtitle.isEmpty }
+        let commandPaletteListContentHeight: CGFloat = visibleResults.isEmpty
             ? commandPaletteEmptyStateHeight
-            : CGFloat(visibleResults.count) * commandPaletteRowHeight
+            : hasSwitcherSubtitles
+                ? commandPaletteListMaxHeight
+                : CGFloat(visibleResults.count) * commandPaletteRowHeight
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
         return VStack(spacing: 0) {
             HStack(spacing: 8) {
@@ -3123,12 +3128,23 @@ struct ContentView: View {
                                 runCommandPaletteResult(commandID: result.id)
                             } label: {
                                 HStack(spacing: 8) {
-                                    commandPaletteHighlightedTitleText(
-                                        result.command.title,
-                                        matchedIndices: result.titleMatchIndices
-                                    )
-                                        .font(.system(size: 13, weight: .regular))
-                                        .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        commandPaletteHighlightedTitleText(
+                                            result.command.title,
+                                            matchedIndices: result.titleMatchIndices
+                                        )
+                                            .font(.system(size: 13, weight: .regular))
+                                            .lineLimit(1)
+
+                                        if result.command.showsSubtitle && !result.command.subtitle.isEmpty {
+                                            Text(result.command.subtitle)
+                                                .font(.system(size: 10.5, weight: .regular))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(4)
+                                                .truncationMode(.tail)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    }
                                     Spacer()
 
                                     if let trailingLabel = commandPaletteTrailingLabel(for: result.command) {
@@ -4110,6 +4126,7 @@ struct ContentView: View {
                         id: workspace.id,
                         displayName: workspaceDisplayName(workspace),
                         metadata: commandPaletteWorkspaceSearchMetadata(for: workspace),
+                        descriptionFingerprint: commandPaletteSwitcherDescriptionFingerprint(for: workspace),
                         surfaces: includeSurfaces
                             ? commandPaletteOrderedSwitcherPanels(for: workspace).compactMap { panelId in
                                 guard let panel = workspace.panels[panelId] else { return nil }
@@ -4217,11 +4234,12 @@ struct ContentView: View {
                         id: workspaceCommandId,
                         rank: nextRank,
                         title: workspaceName,
-                        subtitle: commandPaletteSwitcherSubtitle(base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"), windowLabel: context.windowLabel),
+                        subtitle: commandPaletteSwitcherWorkspaceDescription(for: workspace, windowLabel: context.windowLabel),
                         shortcutHint: nil,
                         kindLabel: String(localized: "commandPalette.kind.workspace", defaultValue: "Workspace"),
                         keywords: workspaceKeywords,
                         dismissOnRun: true,
+                        showsSubtitle: true,
                         action: {
                             focusCommandPaletteSwitcherTarget(
                                 windowId: windowId,
@@ -4267,6 +4285,7 @@ struct ContentView: View {
                             kindLabel: surfaceKindLabel,
                             keywords: surfaceKeywords,
                             dismissOnRun: true,
+                            showsSubtitle: false,
                             action: {
                                 focusCommandPaletteSwitcherSurfaceTarget(
                                     windowId: windowId,
@@ -4337,6 +4356,91 @@ struct ContentView: View {
     private func commandPaletteSwitcherSubtitle(base: String, windowLabel: String?) -> String {
         guard let windowLabel else { return base }
         return "\(base) • \(windowLabel)"
+    }
+
+    private func commandPaletteSwitcherWorkspaceDescription(for workspace: Workspace, windowLabel: String?) -> String {
+        var lines: [String] = []
+
+        // Latest notification text (matches sidebar notification subtitle)
+        if let notification = notificationStore.latestNotification(forTabId: workspace.id) {
+            let text = notification.body.isEmpty ? notification.title : notification.body
+            if !text.isEmpty {
+                lines.append(text)
+            }
+        }
+
+        // Status entries (e.g. "● Idle") — matches sidebar metadata pills
+        let statusEntries = workspace.sidebarStatusEntriesInDisplayOrder()
+        if !statusEntries.isEmpty {
+            let statusLine = statusEntries.map { entry in
+                if let icon = entry.icon, !icon.isEmpty {
+                    return "\(icon) \(entry.value)"
+                }
+                return entry.value
+            }.joined(separator: "  ")
+            lines.append(statusLine)
+        }
+
+        // Directory (abbreviated) — matches sidebar branch/directory row
+        var dirParts: [String] = []
+        if let branch = workspace.gitBranch?.branch, !branch.isEmpty {
+            let branchDisplay = workspace.gitBranch?.isDirty == true ? "\(branch)*" : branch
+            dirParts.append(branchDisplay)
+        }
+        let dir = workspace.currentDirectory
+        if !dir.isEmpty {
+            dirParts.append(abbreviatedDirectory(dir))
+        }
+        if !dirParts.isEmpty {
+            lines.append(dirParts.joined(separator: " • "))
+        }
+
+        // Listening ports — matches sidebar ports row
+        if !workspace.listeningPorts.isEmpty {
+            let portsLine = workspace.listeningPorts.map { ":\($0)" }.joined(separator: " ")
+            lines.append(portsLine)
+        }
+
+        if let windowLabel, !lines.isEmpty {
+            lines.append(windowLabel)
+        }
+
+        if lines.isEmpty {
+            return commandPaletteSwitcherSubtitle(
+                base: String(localized: "commandPalette.switcher.workspaceLabel", defaultValue: "Workspace"),
+                windowLabel: windowLabel
+            )
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func commandPaletteSwitcherDescriptionFingerprint(for workspace: Workspace) -> Int {
+        var hasher = Hasher()
+        if let notification = notificationStore.latestNotification(forTabId: workspace.id) {
+            hasher.combine(notification.body.isEmpty ? notification.title : notification.body)
+        }
+        for entry in workspace.sidebarStatusEntriesInDisplayOrder() {
+            hasher.combine(entry.key)
+            hasher.combine(entry.value)
+            hasher.combine(entry.icon)
+        }
+        hasher.combine(workspace.gitBranch?.branch)
+        hasher.combine(workspace.gitBranch?.isDirty)
+        hasher.combine(workspace.currentDirectory)
+        hasher.combine(workspace.listeningPorts)
+        return hasher.finalize()
+    }
+
+    private func abbreviatedDirectory(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path == home {
+            return "~"
+        }
+        if path.hasPrefix(home + "/") {
+            return "~/" + String(path.dropFirst(home.count + 1))
+        }
+        return path
     }
 
     private func commandPaletteWindowKeywords(windowLabel: String?) -> [String] {
@@ -4473,6 +4577,7 @@ struct ContentView: View {
                     kindLabel: nil,
                     keywords: contribution.keywords,
                     dismissOnRun: contribution.dismissOnRun,
+                    showsSubtitle: false,
                     action: action
                 )
             )
@@ -4617,13 +4722,15 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceHasBelow,
                 (workspaceIndex ?? tabManager.tabs.count - 1) < tabManager.tabs.count - 1
             )
+            let workspaceHasUnreadNotifications = notificationStore.notifications.contains { $0.tabId == workspace.id && !$0.isRead }
+            let workspaceHasManualUnread = !workspace.manualUnreadPanelIds.isEmpty
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasUnread,
-                notificationStore.notifications.contains { $0.tabId == workspace.id && !$0.isRead }
+                workspaceHasUnreadNotifications || workspaceHasManualUnread
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasRead,
-                notificationStore.notifications.contains { $0.tabId == workspace.id && $0.isRead }
+                true // Always allow marking as unread
             )
         }
 
@@ -5502,18 +5609,18 @@ struct ContentView: View {
             closeSelectedWorkspacesAbove()
         }
         registry.register(commandId: "palette.markWorkspaceRead") {
-            guard let workspaceId = tabManager.selectedWorkspace?.id else {
+            guard let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
                 return
             }
-            notificationStore.markRead(forTabId: workspaceId)
+            workspace.markAllPanelsRead()
         }
         registry.register(commandId: "palette.markWorkspaceUnread") {
-            guard let workspaceId = tabManager.selectedWorkspace?.id else {
+            guard let workspace = tabManager.selectedWorkspace else {
                 NSSound.beep()
                 return
             }
-            notificationStore.markUnread(forTabId: workspaceId)
+            workspace.markAllPanelsUnread()
         }
 
         registry.register(commandId: "palette.renameTab") {
@@ -5796,6 +5903,7 @@ struct ContentView: View {
                 hasher.combine(workspace.id)
                 hasher.combine(workspace.displayName)
                 combineCommandPaletteSwitcherSearchMetadata(workspace.metadata, into: &hasher)
+                hasher.combine(workspace.descriptionFingerprint)
                 hasher.combine(workspace.surfaces.count)
                 for surface in workspace.surfaces {
                     hasher.combine(surface.id)
@@ -10284,13 +10392,15 @@ private struct TabItemView: View, Equatable {
             return pullRequestDisplays(orderedPanelIds: orderedPanelIds)
         }()
 
+        let effectiveUnreadCount = unreadCount + tab.manualOnlyUnreadCount(notificationStore: notificationStore)
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                if unreadCount > 0 {
+                if effectiveUnreadCount > 0 {
                     ZStack {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
+                        Text("\(effectiveUnreadCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
@@ -10775,12 +10885,11 @@ private struct TabItemView: View, Equatable {
         Button(markReadLabel) {
             markTabsRead(targetIds)
         }
-        .disabled(!hasUnreadNotifications(in: targetIds))
+        .disabled(!hasAnyUnread(in: targetIds))
 
         Button(markUnreadLabel) {
             markTabsUnread(targetIds)
         }
-        .disabled(!hasReadNotifications(in: targetIds))
     }
 
     private var backgroundColor: Color {
@@ -10933,24 +11042,25 @@ private struct TabItemView: View, Equatable {
 
     private func markTabsRead(_ targetIds: [UUID]) {
         for id in targetIds {
-            notificationStore.markRead(forTabId: id)
+            if let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+                workspace.markAllPanelsRead()
+            }
         }
     }
 
     private func markTabsUnread(_ targetIds: [UUID]) {
         for id in targetIds {
-            notificationStore.markUnread(forTabId: id)
+            if let workspace = tabManager.tabs.first(where: { $0.id == id }) {
+                workspace.markAllPanelsUnread()
+            }
         }
     }
 
-    private func hasUnreadNotifications(in targetIds: [UUID]) -> Bool {
+    private func hasAnyUnread(in targetIds: [UUID]) -> Bool {
         let targetSet = Set(targetIds)
-        return notificationStore.notifications.contains { targetSet.contains($0.tabId) && !$0.isRead }
-    }
-
-    private func hasReadNotifications(in targetIds: [UUID]) -> Bool {
-        let targetSet = Set(targetIds)
-        return notificationStore.notifications.contains { targetSet.contains($0.tabId) && $0.isRead }
+        let hasUnreadNotifications = notificationStore.notifications.contains { targetSet.contains($0.tabId) && !$0.isRead }
+        if hasUnreadNotifications { return true }
+        return tabManager.tabs.contains { targetSet.contains($0.id) && !$0.manualUnreadPanelIds.isEmpty }
     }
 
     private func syncSelectionAfterMutation() {
