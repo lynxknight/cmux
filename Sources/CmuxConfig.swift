@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 
 /// Manages loading and hot-reloading of `~/.cmux.conf` (JSON format).

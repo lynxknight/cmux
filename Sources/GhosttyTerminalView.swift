@@ -3330,6 +3330,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
         writeTextData(data, to: surface)
     }
 
+    /// Send text via the key input path (ghostty_surface_key) instead of the
+    /// paste path (ghostty_surface_text). This bypasses bracketed paste mode
+    /// so that a trailing newline actually executes the command in the shell.
+    func sendCommand(_ text: String) {
+        guard !text.isEmpty else { return }
+        guard let surface = surface else {
+            // Fall back to paste-path queuing; the command will be pasted
+            // when the surface is ready (better than silently dropping).
+            if let data = text.data(using: .utf8) {
+                enqueuePendingText(data)
+            }
+            return
+        }
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = 0
+        keyEvent.mods = GHOSTTY_MODS_NONE
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.unshifted_codepoint = 0
+        keyEvent.composing = false
+        text.withCString { ptr in
+            keyEvent.text = ptr
+            _ = ghostty_surface_key(surface, keyEvent)
+        }
+    }
+
     func requestBackgroundSurfaceStartIfNeeded() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in

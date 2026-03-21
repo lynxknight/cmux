@@ -8773,7 +8773,9 @@ struct CMUXCLI {
 
         switch subcommand {
         case "dump":
-            let includeScrollback = optionValue(subArgs, name: "--scrollback") == "1"
+            // Default to including scrollback; use --scrollback=0 to disable
+            let scrollbackOpt = optionValue(subArgs, name: "--scrollback")
+            let includeScrollback = scrollbackOpt != "0"
             let scrollbackFlag = includeScrollback ? " --scrollback=1" : ""
             let response = try sendV1Command("state_dump\(scrollbackFlag)", client: client)
             if response.hasPrefix("ERROR") {
@@ -8807,7 +8809,7 @@ struct CMUXCLI {
             fputs("\n", stderr)
             fputs("Options:\n", stderr)
             fputs("  -f, --file <path>    State file path (default: ~/.cmux/state.json)\n", stderr)
-            fputs("  --scrollback 1       Include terminal scrollback in dump\n", stderr)
+            fputs("  --scrollback 0       Exclude terminal scrollback from dump (included by default)\n", stderr)
         }
     }
 

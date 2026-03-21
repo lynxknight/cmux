@@ -442,7 +442,13 @@ enum SessionScrollbackReplayStore {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        var result = ansiSafeReplayText(truncated)
+        // Ensure the replay text ends with a newline so the shell prompt starts
+        // on a fresh line after cat outputs the scrollback.
+        if !result.hasSuffix("\n") {
+            result += "\n"
+        }
+        return result
     }
 
     /// Preserve ANSI color state safely across replay boundaries.

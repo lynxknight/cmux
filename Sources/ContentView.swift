@@ -8946,8 +8946,7 @@ private struct SidebarResumeClaudeButton: View {
                 dlog("claude.session.resume: panel=\(panelId) session=\(sessionId)")
                 #endif
                 let resumeCommand = "claude --resume \(sessionId)\n"
-                    .replacingOccurrences(of: "\n", with: "\r")
-                panel.sendText(resumeCommand)
+                panel.sendCommand(resumeCommand)
                 workspace.claudeSessionIds.removeValue(forKey: panelId)
             }
         }

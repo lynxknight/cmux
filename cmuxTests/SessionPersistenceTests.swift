@@ -247,7 +247,54 @@ final class SessionPersistenceTests: XCTestCase {
 
         XCTAssertTrue(contents.contains("\(red)RED\(reset)"))
         XCTAssertTrue(contents.hasPrefix(reset))
-        XCTAssertTrue(contents.hasSuffix(reset))
+        // Replay text ends with ANSI reset + trailing newline for clean prompt positioning.
+        XCTAssertTrue(contents.hasSuffix("\(reset)\n"))
+    }
+
+    func testScrollbackReplayFileEndsWithNewlineWhenSourceLacksOne() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: "prompt$ ",
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertTrue(contents.hasSuffix("\n"),
+            "Replay file must end with newline so shell prompt starts on a fresh line")
+    }
+
+    func testScrollbackReplayFilePreservesExistingTrailingNewline() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: "line one\nline two\n",
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file")
+            return
+        }
+
+        // Should not double-up newlines when source already ends with one.
+        XCTAssertEqual(contents, "line one\nline two\n")
     }
 
     func testTruncatedScrollbackAvoidsLeadingPartialANSICSISequence() {
