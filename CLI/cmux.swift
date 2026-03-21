@@ -1730,6 +1730,9 @@ struct CMUXCLI {
                 throw error
             }
 
+        case "state":
+            try runState(commandArgs: commandArgs, client: client)
+
         case "set-status":
             let (icon, r1) = parseOption(commandArgs, name: "--icon")
             let (color, r2) = parseOption(r1, name: "--color")
@@ -8513,6 +8516,14 @@ struct CMUXCLI {
                     client: client
                 )
             }
+            // Store Claude session ID on the surface for session persistence.
+            // This enables `--resume` after app restart.
+            if let sessionId = parsedInput.sessionId {
+                _ = try? sendV1Command(
+                    "set_claude_session \(sessionId) --surface=\(surfaceId) --tab=\(workspaceId)",
+                    client: client
+                )
+            }
             print("OK")
 
         case "stop", "idle":
@@ -8651,6 +8662,10 @@ struct CMUXCLI {
                 _ = try? clearClaudeStatus(client: client, workspaceId: workspaceId)
                 _ = try? sendV1Command("clear_agent_pid claude_code --tab=\(workspaceId)", client: client)
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                // NOTE: Do NOT clear_claude_session here. The session ID must
+                // persist in the snapshot so it can be resumed after app restart.
+                // It gets cleared when the user clicks "Resume" or when a new
+                // Claude session starts in the same pane (set_claude_session overwrites).
             }
             print("OK")
 
@@ -8740,6 +8755,60 @@ struct CMUXCLI {
 
     private func clearClaudeStatus(client: SocketClient, workspaceId: String) throws {
         _ = try client.send(command: "clear_status claude_code --tab=\(workspaceId)")
+    }
+
+    // MARK: - State dump/load
+
+    private static let defaultStatePath = "~/.cmux/state.json"
+
+    private func runState(commandArgs: [String], client: SocketClient) throws {
+        let subcommand = commandArgs.first?.lowercased() ?? "help"
+        let subArgs = Array(commandArgs.dropFirst())
+        let filePath: String = {
+            let raw = optionValue(subArgs, name: "-f")
+                ?? optionValue(subArgs, name: "--file")
+                ?? Self.defaultStatePath
+            return NSString(string: raw).expandingTildeInPath
+        }()
+
+        switch subcommand {
+        case "dump":
+            let includeScrollback = optionValue(subArgs, name: "--scrollback") == "1"
+            let scrollbackFlag = includeScrollback ? " --scrollback=1" : ""
+            let response = try sendV1Command("state_dump\(scrollbackFlag)", client: client)
+            if response.hasPrefix("ERROR") {
+                throw CLIError(message: response)
+            }
+
+            let parentDir = (filePath as NSString).deletingLastPathComponent
+            try FileManager.default.createDirectory(
+                atPath: parentDir,
+                withIntermediateDirectories: true,
+                attributes: nil
+            )
+            try response.write(toFile: filePath, atomically: true, encoding: .utf8)
+            fputs("State saved to \(filePath)\n", stderr)
+
+        case "load":
+            guard FileManager.default.fileExists(atPath: filePath) else {
+                throw CLIError(message: "State file not found: \(filePath)")
+            }
+            let response = try sendV1Command("state_load \(filePath)", client: client)
+            if response.hasPrefix("ERROR") {
+                throw CLIError(message: response)
+            }
+            fputs("State loaded from \(filePath)\n", stderr)
+
+        default:
+            fputs("Usage: cmux state <dump|load> [-f <path>]\n", stderr)
+            fputs("\n", stderr)
+            fputs("  dump    Save current app state to file (default: ~/.cmux/state.json)\n", stderr)
+            fputs("  load    Load state from file into running app\n", stderr)
+            fputs("\n", stderr)
+            fputs("Options:\n", stderr)
+            fputs("  -f, --file <path>    State file path (default: ~/.cmux/state.json)\n", stderr)
+            fputs("  --scrollback 1       Include terminal scrollback in dump\n", stderr)
+        }
     }
 
     private func describeAskUserQuestion(_ object: [String: Any]?) -> String? {

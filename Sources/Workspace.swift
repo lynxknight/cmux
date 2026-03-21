@@ -200,6 +200,19 @@ extension Workspace {
         // restarts because the processes that set them are gone.
         statusEntries.removeAll()
         agentPIDs.removeAll()
+
+        // Remap Claude session IDs from old panel IDs to new panel IDs.
+        // These survive restart because `--resume` works on dead sessions.
+        var restoredClaudeSessions: [UUID: String] = [:]
+        for panelSnapshot in snapshot.panels {
+            guard let sessionId = panelSnapshot.terminal?.claudeSessionId,
+                  let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
+            restoredClaudeSessions[newPanelId] = sessionId
+            #if DEBUG
+            dlog("claude.session.restore: oldPanel=\(panelSnapshot.id) newPanel=\(newPanelId) sessionId=\(sessionId)")
+            #endif
+        }
+        claudeSessionIds = restoredClaudeSessions
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
                 message: entry.message,
@@ -316,9 +329,16 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback
             )
+            let claudeSessionId = claudeSessionIds[panelId]
+            #if DEBUG
+            if let claudeSessionId {
+                dlog("claude.session.snapshot: panel=\(panelId) sessionId=\(claudeSessionId)")
+            }
+            #endif
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: panelDirectories[panelId],
-                scrollback: resolvedScrollback
+                scrollback: resolvedScrollback,
+                claudeSessionId: claudeSessionId
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -1000,6 +1020,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// PIDs associated with agent status entries (e.g. claude_code), keyed by status key.
     /// Used for stale-session detection: if the PID is dead, the status entry is cleared.
     var agentPIDs: [String: pid_t] = [:]
+    /// Claude Code session IDs, keyed by panel (surface) UUID.
+    /// Set via the `set_claude_session` socket command from `claude-hook session-start`.
+    /// Persisted in session snapshots for `--resume` on app restart.
+    @Published var claudeSessionIds: [UUID: String] = [:]
     private var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
 
     var focusedSurfaceId: UUID? { focusedPanelId }

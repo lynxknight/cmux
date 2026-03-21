@@ -1862,6 +1862,9 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation {
     static var shared: AppDelegate?
 
+    private var toastPanel: NSPanel?
+    private var toastHideWorkItem: DispatchWorkItem?
+
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
 
     private var isRunningUnderXCTestCached: Bool {
@@ -3382,7 +3385,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {
+    func buildSessionSnapshot(includeScrollback: Bool) -> AppSessionSnapshot? {
         let contexts = mainWindowContexts.values.sorted { lhs, rhs in
             let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
             let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
@@ -11764,9 +11767,6 @@ extension AppDelegate: PrefixKeyManagerDelegate {
         toastHideWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: workItem)
     }
-
-    private var toastPanel: NSPanel?
-    private var toastHideWorkItem: DispatchWorkItem?
 
     func applyCmuxConfig() {
         let config = CmuxConfig.shared

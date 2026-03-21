@@ -224,6 +224,7 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
+    var claudeSessionId: String?
 }
 
 struct SessionBrowserPanelSnapshot: Codable, Sendable {

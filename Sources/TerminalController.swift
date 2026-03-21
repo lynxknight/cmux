@@ -1568,6 +1568,15 @@ class TerminalController {
         case "clear_agent_pid":
             return clearAgentPID(args)
 
+        case "set_claude_session":
+            return setClaudeSession(args)
+
+        case "clear_claude_session":
+            return clearClaudeSession(args)
+
+        case "list_claude_sessions":
+            return listClaudeSessions(args)
+
         case "clear_meta":
             return clearMeta(args)
 
@@ -1639,6 +1648,12 @@ class TerminalController {
 
         case "read_screen":
             return readScreenText(args)
+
+        case "state_dump":
+            return stateDump(args)
+
+        case "state_load":
+            return stateLoad(args)
 
 
 #if DEBUG
@@ -13171,6 +13186,154 @@ class TerminalController {
             tab.agentPIDs.removeValue(forKey: key)
         }
         return "OK"
+    }
+
+    /// Store a Claude Code session ID for a specific surface (panel).
+    /// Usage: set_claude_session <session_id> --surface=<panel_uuid> [--tab=<id>]
+    private func setClaudeSession(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let sessionId = parsed.positional.first, !sessionId.isEmpty else {
+            return "ERROR: Usage: set_claude_session <session_id> --surface=<panel_uuid> [--tab=<id>]"
+        }
+        guard let surfaceIdStr = parsed.options["surface"],
+              let surfaceUUID = UUID(uuidString: surfaceIdStr) else {
+            return "ERROR: --surface=<panel_uuid> is required"
+        }
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+        #if DEBUG
+        dlog("claude.session.set: tab=\(targetTabId) surface=\(surfaceUUID) sessionId=\(sessionId)")
+        #endif
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            tab.claudeSessionIds[surfaceUUID] = sessionId
+        }
+        return "OK"
+    }
+
+    /// Clear a Claude Code session ID for a specific surface (panel).
+    /// Usage: clear_claude_session --surface=<panel_uuid> [--tab=<id>]
+    private func clearClaudeSession(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        guard let surfaceIdStr = parsed.options["surface"],
+              let surfaceUUID = UUID(uuidString: surfaceIdStr) else {
+            return "ERROR: --surface=<panel_uuid> is required"
+        }
+        let tabResolution = resolveTabIdForSidebarMutation(reportArgs: args, options: parsed.options)
+        guard let targetTabId = tabResolution.tabId else {
+            return tabResolution.error ?? "ERROR: No tab selected"
+        }
+        #if DEBUG
+        dlog("claude.session.clear: tab=\(targetTabId) surface=\(surfaceUUID)")
+        #endif
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tab = self.tabForSidebarMutation(id: targetTabId) else { return }
+            tab.claudeSessionIds.removeValue(forKey: surfaceUUID)
+        }
+        return "OK"
+    }
+
+    /// List all Claude Code session IDs across all workspaces as JSON.
+    /// Usage: list_claude_sessions
+    private func listClaudeSessions(_ args: String) -> String {
+        var result: [[String: String]] = []
+        DispatchQueue.main.sync {
+            let summaries = AppDelegate.shared?.listMainWindowSummaries() ?? []
+            for summary in summaries {
+                guard let manager = AppDelegate.shared?.tabManagerFor(windowId: summary.windowId) else { continue }
+                for tab in manager.tabs {
+                    for (panelId, sessionId) in tab.claudeSessionIds {
+                        let cwd = tab.panelDirectories[panelId] ?? tab.currentDirectory
+                        result.append([
+                            "workspaceId": tab.id.uuidString,
+                            "workspaceTitle": tab.title,
+                            "panelId": panelId.uuidString,
+                            "sessionId": sessionId,
+                            "cwd": cwd,
+                        ])
+                    }
+                }
+            }
+        }
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: result,
+            options: [.sortedKeys, .prettyPrinted]
+        ),
+        let jsonString = String(data: data, encoding: .utf8) else {
+            return "[]"
+        }
+        return jsonString
+    }
+
+    /// Dump the current app session state as JSON.
+    /// Usage: state_dump [--scrollback=0|1]
+    private func stateDump(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        let includeScrollback = parsed.options["scrollback"] == "1"
+
+        var snapshot: AppSessionSnapshot?
+        DispatchQueue.main.sync {
+            snapshot = AppDelegate.shared?.buildSessionSnapshot(includeScrollback: includeScrollback)
+        }
+
+        guard let snapshot else {
+            return "ERROR: Failed to build session snapshot"
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        guard let data = try? encoder.encode(snapshot),
+              let jsonString = String(data: data, encoding: .utf8) else {
+            return "ERROR: Failed to encode session snapshot"
+        }
+
+        #if DEBUG
+        dlog("state.dump: windows=\(snapshot.windows.count) scrollback=\(includeScrollback)")
+        #endif
+
+        return jsonString
+    }
+
+    /// Load app state from a JSON snapshot file.
+    /// Usage: state_load <file_path>
+    private func stateLoad(_ args: String) -> String {
+        let filePath = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !filePath.isEmpty else {
+            return "ERROR: Usage: state_load <file_path>"
+        }
+
+        let expandedPath = NSString(string: filePath).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expandedPath) else {
+            return "ERROR: File not found: \(expandedPath)"
+        }
+
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: expandedPath)) else {
+            return "ERROR: Failed to read file: \(expandedPath)"
+        }
+
+        let decoder = JSONDecoder()
+        guard let snapshot = try? decoder.decode(AppSessionSnapshot.self, from: data) else {
+            return "ERROR: Failed to decode session snapshot"
+        }
+
+        guard let windowSnapshot = snapshot.windows.first else {
+            return "ERROR: Snapshot contains no windows"
+        }
+
+        #if DEBUG
+        dlog("state.load: file=\(expandedPath) windows=\(snapshot.windows.count) workspaces=\(windowSnapshot.tabManager.workspaces.count)")
+        #endif
+
+        var result = "ERROR: No tab manager available"
+        DispatchQueue.main.sync { [weak self] in
+            guard let self, let tabManager = self.tabManager else { return }
+            tabManager.restoreSessionSnapshot(windowSnapshot.tabManager)
+            result = "OK (restored \(windowSnapshot.tabManager.workspaces.count) workspaces)"
+        }
+
+        return result
     }
 
     private func sidebarMetadataLine(_ entry: SidebarStatusEntry) -> String {

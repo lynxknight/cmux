@@ -8858,13 +8858,99 @@ private struct SidebarFooter: View {
 private struct SidebarFooterButtons: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     let onSendFeedback: () -> Void
+    @EnvironmentObject var tabManager: TabManager
+
+    private var resumableSessionCount: Int {
+        var total = 0
+        for workspace in tabManager.tabs {
+            for (panelId, sessionId) in workspace.claudeSessionIds {
+                let exists = claudeSessionFileExists(sessionId: sessionId, cwd: workspace.currentDirectory)
+                #if DEBUG
+                dlog("claude.session.check: workspace=\(workspace.id) panel=\(panelId) sessionId=\(sessionId) fileExists=\(exists)")
+                #endif
+                if exists { total += 1 }
+            }
+        }
+        #if DEBUG
+        if total > 0 || !tabManager.tabs.allSatisfy({ $0.claudeSessionIds.isEmpty }) {
+            dlog("claude.session.resumableCount=\(total)")
+        }
+        #endif
+        return total
+    }
 
     var body: some View {
         HStack(spacing: 4) {
             SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            if resumableSessionCount > 0 {
+                SidebarResumeClaudeButton(tabManager: tabManager, sessionCount: resumableSessionCount)
+            }
             UpdatePill(model: updateViewModel)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private func claudeSessionFileExists(sessionId: String, cwd: String) -> Bool {
+    let claudeProjectsDir = NSString(string: "~/.claude/projects").expandingTildeInPath
+    // Check the expected directory first (cwd encoded as path components joined by -)
+    let encodedCwd = cwd.replacingOccurrences(of: "/", with: "-")
+    let primaryPath = "\(claudeProjectsDir)/\(encodedCwd)/\(sessionId).jsonl"
+    if FileManager.default.fileExists(atPath: primaryPath) {
+        return true
+    }
+    // Fallback: scan all project directories for the session file
+    guard let dirs = try? FileManager.default.contentsOfDirectory(atPath: claudeProjectsDir) else {
+        return false
+    }
+    return dirs.contains { dir in
+        FileManager.default.fileExists(atPath: "\(claudeProjectsDir)/\(dir)/\(sessionId).jsonl")
+    }
+}
+
+private struct SidebarResumeClaudeButton: View {
+    @ObservedObject var tabManager: TabManager
+    let sessionCount: Int
+
+    var body: some View {
+        Button {
+            resumeAllClaudeSessions()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.counterclockwise")
+                    .font(.system(size: 10, weight: .medium))
+                Text(String(localized: "sidebar.resumeClaude.label", defaultValue: "\(sessionCount)"))
+                    .font(.system(size: 10, weight: .medium))
+            }
+        }
+        .buttonStyle(SidebarFooterIconButtonStyle())
+        .help(String(localized: "sidebar.resumeClaude.tooltip", defaultValue: "Resume \(sessionCount) Claude session(s)"))
+    }
+
+    private func resumeAllClaudeSessions() {
+        for workspace in tabManager.tabs {
+            let sessionsToResume = workspace.claudeSessionIds
+            for (panelId, sessionId) in sessionsToResume {
+                guard claudeSessionFileExists(sessionId: sessionId, cwd: workspace.currentDirectory) else {
+                    #if DEBUG
+                    dlog("claude.session.expired: panel=\(panelId) session=\(sessionId)")
+                    #endif
+                    workspace.claudeSessionIds.removeValue(forKey: panelId)
+                    continue
+                }
+                guard let panel = workspace.panels[panelId] as? TerminalPanel else {
+                    workspace.claudeSessionIds.removeValue(forKey: panelId)
+                    continue
+                }
+                #if DEBUG
+                dlog("claude.session.resume: panel=\(panelId) session=\(sessionId)")
+                #endif
+                let resumeCommand = "claude --resume \(sessionId)\n"
+                    .replacingOccurrences(of: "\n", with: "\r")
+                panel.sendText(resumeCommand)
+                workspace.claudeSessionIds.removeValue(forKey: panelId)
+            }
+        }
     }
 }
 
