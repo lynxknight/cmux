@@ -9303,6 +9303,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    /// PREFIX+f: fork the Claude Code session in the focused panel into a new horizontal split.
+    /// Creates a split below, then sends `claude --resume <id> --fork-session` to the new terminal.
+    func performForkClaudeSession() {
+        _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+
+        guard let tabManager,
+              let selectedTabId = tabManager.selectedTabId,
+              let workspace = tabManager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            showToast(String(localized: "fork.claude.noPanel", defaultValue: "No focused panel"))
+            return
+        }
+
+        guard let sessionId = workspace.claudeSessionIds[panelId] else {
+            showToast(String(localized: "fork.claude.noSession", defaultValue: "No Claude session in this pane"))
+            return
+        }
+
+        // Create a horizontal split (stacked, below) and get the new panel ID
+        prepareFocusedBrowserDevToolsForSplit(directionLabel: "down")
+        workspace.clearSplitZoom()
+        guard let newPanelId = tabManager.newSplit(tabId: selectedTabId, surfaceId: panelId, direction: .down) else {
+            showToast(String(localized: "fork.claude.splitFailed", defaultValue: "Failed to create split"))
+            return
+        }
+
+        // Send the fork command to the new terminal once its surface is ready
+        let command = "claude --resume \(sessionId) --fork-session\n"
+        sendCommandToPanel(command, panelId: newPanelId, in: workspace)
+    }
+
+    /// Polls until the terminal panel's surface is ready, then sends a command via the key input path.
+    private func sendCommandToPanel(_ command: String, panelId: UUID, in workspace: Workspace, attempt: Int = 0) {
+        let maxAttempts = 60
+        if let terminalPanel = workspace.panels[panelId] as? TerminalPanel,
+           terminalPanel.surface.surface != nil {
+            // Wait for the shell prompt to be ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                terminalPanel.sendCommand(command)
+            }
+            return
+        }
+        guard attempt < maxAttempts else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.sendCommandToPanel(command, panelId: panelId, in: workspace, attempt: attempt + 1)
+        }
+    }
+
     @discardableResult
     func performBrowserSplitShortcut(direction: SplitDirection) -> Bool {
         _ = synchronizeActiveMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
@@ -11693,6 +11741,13 @@ extension AppDelegate: PrefixKeyManagerDelegate {
             showToast(message)
 #if DEBUG
             dlog("prefix.action name=reloadConfig")
+#endif
+
+        case .forkClaudeSession:
+            // PREFIX+f → fork Claude session in horizontal split
+            performForkClaudeSession()
+#if DEBUG
+            dlog("prefix.action name=forkClaudeSession")
 #endif
         }
     }

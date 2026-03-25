@@ -65,6 +65,8 @@ final class PrefixKeyManager {
         case toggleUnread
         /// PREFIX+r → reload config
         case reloadConfig
+        /// PREFIX+f → fork Claude session in horizontal split
+        case forkClaudeSession
     }
 
     // MARK: - Properties
@@ -96,6 +98,7 @@ final class PrefixKeyManager {
         "x": .killPane,             // PREFIX+x → kill current pane
         "u": .toggleUnread,         // PREFIX+u → toggle unread on focused tab
         "r": .reloadConfig,         // PREFIX+r → reload config
+        "f": .forkClaudeSession,    // PREFIX+f → fork Claude session in horizontal split
     ]
 
     /// Active bindings (configurable via .cmux.conf)
@@ -112,6 +115,7 @@ final class PrefixKeyManager {
         7: .killPane,        // kVK_ANSI_X
         32: .toggleUnread,   // kVK_ANSI_U
         15: .reloadConfig,   // kVK_ANSI_R
+        3: .forkClaudeSession, // kVK_ANSI_F
     ]
 
     /// Active key codes (rebuilt when bindings change)

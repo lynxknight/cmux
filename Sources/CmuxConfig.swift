@@ -259,6 +259,7 @@ final class CmuxConfig: ObservableObject {
         case "kill-pane": return .killPane
         case "toggle-unread": return .toggleUnread
         case "reload-config": return .reloadConfig
+        case "fork-claude-session": return .forkClaudeSession
         default: return nil
         }
     }
@@ -273,6 +274,7 @@ final class CmuxConfig: ObservableObject {
         .killPane: "kill-pane",
         .toggleUnread: "toggle-unread",
         .reloadConfig: "reload-config",
+        .forkClaudeSession: "fork-claude-session",
     ]
 
     static func keybindingActionFromString(_ name: String) -> KeyboardShortcutSettings.Action? {
